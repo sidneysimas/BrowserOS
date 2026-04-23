@@ -1,0 +1,187 @@
+/**
+ * @license
+ * Copyright 2025 BrowserOS
+ */
+
+import { afterEach, describe, expect, it } from 'bun:test'
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { homedir, tmpdir } from 'node:os'
+import { dirname, join } from 'node:path'
+import { PATHS } from '@browseros/shared/constants/paths'
+import {
+  getLegacyOpenClawDir,
+  getOpenClawDir,
+} from '../../../src/lib/browseros-dir'
+import {
+  detectArch,
+  getCachedManifestPath,
+  getContainerdSocketPath,
+  getImageCacheDir,
+  getInstalledManifestPath,
+  getLimaHomeDir,
+  getVmCacheDir,
+  getVmStateDir,
+  hostPathToGuest,
+  resolveBundledLimactl,
+  resolveBundledLimaTemplate,
+} from '../../../src/lib/vm/paths'
+
+describe('VM paths', () => {
+  const originalNodeEnv = process.env.NODE_ENV
+
+  afterEach(() => {
+    if (originalNodeEnv === undefined) {
+      delete process.env.NODE_ENV
+    } else {
+      process.env.NODE_ENV = originalNodeEnv
+    }
+  })
+
+  it('uses production VM directories below .browseros', () => {
+    process.env.NODE_ENV = 'production'
+
+    expect(getLimaHomeDir()).toBe(join(homedir(), '.browseros', 'lima'))
+    expect(getVmStateDir()).toBe(join(homedir(), '.browseros', 'vm'))
+    expect(getOpenClawDir()).toBe(
+      join(homedir(), '.browseros', 'vm', 'openclaw'),
+    )
+  })
+
+  it('uses development VM directories below .browseros-dev', () => {
+    process.env.NODE_ENV = 'development'
+
+    expect(getLimaHomeDir()).toBe(join(homedir(), '.browseros-dev', 'lima'))
+    expect(getVmStateDir()).toBe(join(homedir(), '.browseros-dev', 'vm'))
+    expect(getOpenClawDir()).toBe(
+      join(homedir(), '.browseros-dev', 'vm', 'openclaw'),
+    )
+  })
+
+  it('keeps the legacy OpenClaw directory addressable for migration', () => {
+    process.env.NODE_ENV = 'production'
+
+    expect(getLegacyOpenClawDir()).toBe(
+      join(homedir(), PATHS.BROWSEROS_DIR_NAME, PATHS.OPENCLAW_DIR_NAME),
+    )
+  })
+
+  it('builds cached and installed manifest paths', () => {
+    const root = '/Users/foo/.browseros'
+
+    expect(getVmCacheDir(root)).toBe('/Users/foo/.browseros/cache/vm')
+    expect(getImageCacheDir(root)).toBe('/Users/foo/.browseros/cache/vm/images')
+    expect(getCachedManifestPath(root)).toBe(
+      '/Users/foo/.browseros/cache/vm/manifest.json',
+    )
+    expect(getInstalledManifestPath(root)).toBe(
+      '/Users/foo/.browseros/vm/manifest.json',
+    )
+    expect(getContainerdSocketPath(root)).toBe(
+      '/Users/foo/.browseros/lima/browseros-vm/sock/containerd.sock',
+    )
+  })
+
+  it('translates mounted host paths into guest paths', () => {
+    const root = '/Users/foo/.browseros'
+
+    expect(hostPathToGuest('/Users/foo/.browseros/vm/openclaw/x', root)).toBe(
+      '/mnt/browseros/vm/openclaw/x',
+    )
+    expect(
+      hostPathToGuest('/Users/foo/.browseros/cache/vm/images/a.tar.gz', root),
+    ).toBe('/mnt/browseros/cache/images/a.tar.gz')
+  })
+
+  it('rejects unmapped host paths', () => {
+    expect(() =>
+      hostPathToGuest('/tmp/other', '/Users/foo/.browseros'),
+    ).toThrow('not under any known guest mount')
+  })
+
+  it('detects supported host architectures', () => {
+    expect(detectArch('arm64')).toBe('arm64')
+    expect(detectArch('x64')).toBe('x64')
+  })
+
+  it('rejects unsupported host architectures', () => {
+    expect(() => detectArch('ppc64' as NodeJS.Architecture)).toThrow(
+      'unsupported host arch',
+    )
+  })
+
+  it('resolves the bundled limactl executable', async () => {
+    process.env.NODE_ENV = 'production'
+    const resourcesDir = await mkdtemp(join(tmpdir(), 'limactl-resources-'))
+    const limactlPath = join(
+      resourcesDir,
+      'bin',
+      'third_party',
+      'lima',
+      'limactl',
+    )
+    await mkdir(dirname(limactlPath), { recursive: true })
+    await writeFile(limactlPath, '#!/bin/sh\n')
+
+    try {
+      expect(resolveBundledLimactl(resourcesDir)).toBe(limactlPath)
+    } finally {
+      await rm(resourcesDir, { recursive: true, force: true })
+    }
+  })
+
+  it('uses PATH limactl in development mode', () => {
+    process.env.NODE_ENV = 'development'
+
+    expect(resolveBundledLimactl('/tmp/missing-dev-resources')).toBe('limactl')
+  })
+
+  it('uses PATH limactl in test mode', () => {
+    process.env.NODE_ENV = 'test'
+
+    expect(resolveBundledLimactl('/tmp/missing-test-resources')).toBe('limactl')
+  })
+
+  it('throws with a build-tools hint when bundled limactl is missing', () => {
+    process.env.NODE_ENV = 'production'
+
+    expect(() => resolveBundledLimactl('/tmp/missing-resources')).toThrow(
+      'build-tools README',
+    )
+  })
+
+  it('resolves the bundled Lima template', async () => {
+    process.env.NODE_ENV = 'production'
+    const resourcesDir = await mkdtemp(join(tmpdir(), 'lima-template-'))
+    const templatePath = join(resourcesDir, 'vm', 'browseros-vm.yaml')
+    await mkdir(dirname(templatePath), { recursive: true })
+    await writeFile(templatePath, 'mounts: []\n')
+
+    try {
+      expect(resolveBundledLimaTemplate(resourcesDir)).toBe(templatePath)
+    } finally {
+      await rm(resourcesDir, { recursive: true, force: true })
+    }
+  })
+
+  it('resolves the source Lima template from a package workspace in test mode', async () => {
+    process.env.NODE_ENV = 'test'
+    const workspaceDir = await mkdtemp(join(tmpdir(), 'lima-source-template-'))
+    const resourcesDir = join(workspaceDir, 'packages', 'browseros-agent')
+    const templatePath = join(
+      workspaceDir,
+      'packages',
+      'build-tools',
+      'template',
+      'browseros-vm.yaml',
+    )
+    await mkdir(resourcesDir, { recursive: true })
+    await mkdir(dirname(templatePath), { recursive: true })
+    await writeFile(templatePath, 'mounts: []\n')
+
+    try {
+      expect(resolveBundledLimaTemplate(resourcesDir)).toBe(templatePath)
+    } finally {
+      await rm(workspaceDir, { recursive: true, force: true })
+    }
+  })
+})

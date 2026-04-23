@@ -39,6 +39,9 @@ func runWatch(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
+	if err := ensureDevCachePresent(); err != nil {
+		return err
+	}
 
 	defaultPorts := proc.DefaultLocalPorts()
 	p := defaultPorts
@@ -103,16 +106,7 @@ func runWatch(cmd *cobra.Command, args []string) error {
 	var wg sync.WaitGroup
 	var procs []*proc.ManagedProc
 
-	// Run agent codegen if generated files don't exist
 	agentDir := filepath.Join(root, "apps/agent")
-	if _, err := os.Stat(filepath.Join(agentDir, "generated/graphql")); os.IsNotExist(err) {
-		proc.LogMsg(proc.TagBuild, "Running agent codegen...")
-		if err := proc.RunBlocking(ctx, agentDir, proc.TagBuild,
-			"bun", "--env-file=.env.development", "graphql-codegen", "--config", "codegen.ts"); err != nil {
-			return fmt.Errorf("agent codegen failed: %w", err)
-		}
-		proc.LogMsg(proc.TagBuild, "agent codegen done")
-	}
 
 	if watchManual {
 		proc.LogMsg(proc.TagBuild, "Building agent (dev)...")
@@ -187,5 +181,17 @@ func runWatch(cmd *cobra.Command, args []string) error {
 	}
 	wg.Wait()
 	proc.LogMsg(proc.TagInfo, "All processes stopped")
+	return nil
+}
+
+func ensureDevCachePresent() error {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return err
+	}
+	manifestPath := filepath.Join(home, ".browseros-dev", "cache", "vm", "manifest.json")
+	if _, err := os.Stat(manifestPath); os.IsNotExist(err) {
+		return fmt.Errorf("VM cache missing at %s; run bun run dev:setup once", manifestPath)
+	}
 	return nil
 }

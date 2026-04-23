@@ -59,9 +59,8 @@ describe('VM manifest helpers', () => {
     await expect(readCachedManifest(root)).resolves.toEqual(manifest)
   })
 
-  it('throws ManifestMissingError with a cache-sync hint when cached manifest is absent', async () => {
+  it('throws ManifestMissingError when cached manifest is absent', async () => {
     await expect(readCachedManifest(root)).rejects.toThrow(ManifestMissingError)
-    await expect(readCachedManifest(root)).rejects.toThrow('bun run cache:sync')
   })
 
   it('returns null for a missing installed manifest', async () => {

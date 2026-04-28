@@ -23,9 +23,9 @@ export interface BrowserOSChatHistoryToolCall {
   toolName: string
   label: string
   subject?: string
-  status: 'completed' | 'failed'
-  input?: Record<string, unknown>
-  output?: string
+  status: 'pending' | 'running' | 'completed' | 'failed'
+  input?: unknown
+  output?: unknown
   error?: string
   durationMs?: number
 }

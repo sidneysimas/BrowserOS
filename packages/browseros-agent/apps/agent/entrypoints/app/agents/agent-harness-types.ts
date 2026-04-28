@@ -62,19 +62,36 @@ export interface CreateHarnessAgentInput {
   reasoningEffort?: string
 }
 
-export interface HarnessTranscriptEntry {
+export interface HarnessHistoryReasoning {
+  text: string
+  durationMs?: number
+}
+
+export interface HarnessHistoryToolCall {
+  toolCallId?: string
+  toolName: string
+  status: 'pending' | 'running' | 'completed' | 'failed'
+  input?: unknown
+  output?: unknown
+  error?: string
+  durationMs?: number
+}
+
+export interface HarnessHistoryEntry {
   id: string
   agentId: string
   sessionId: 'main'
   role: 'user' | 'assistant'
   text: string
   createdAt: number
+  reasoning?: HarnessHistoryReasoning
+  toolCalls?: HarnessHistoryToolCall[]
 }
 
 export interface HarnessAgentHistoryPage {
   agentId: string
   sessionId: 'main'
-  items: HarnessTranscriptEntry[]
+  items: HarnessHistoryEntry[]
 }
 
 export function mapHarnessAgentToEntry(agent: HarnessAgent): AgentEntry {

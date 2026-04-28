@@ -11,8 +11,10 @@ import type {
   AcpRuntimeEvent,
   AcpRuntimeHandle,
   AcpRuntimeOptions,
+  AcpSessionRecord,
   AcpRuntime as AcpxCoreRuntime,
 } from 'acpx/runtime'
+import { createRuntimeStore } from 'acpx/runtime'
 import { AcpxRuntime } from '../../../src/lib/agents/acpx-runtime'
 import type { AgentDefinition } from '../../../src/lib/agents/agent-types'
 import type { AgentStreamEvent } from '../../../src/lib/agents/types'
@@ -110,6 +112,121 @@ describe('AcpxRuntime', () => {
         stopReason: 'end_turn',
       },
     ])
+  })
+
+  it('maps persisted acpx session records into rich history entries', async () => {
+    const cwd = await mkdtemp(join(tmpdir(), 'browseros-acpx-runtime-'))
+    const stateDir = await mkdtemp(join(tmpdir(), 'browseros-acpx-state-'))
+    tempDirs.push(cwd, stateDir)
+    const timestamp = '2026-04-28T20:00:00.000Z'
+    const agent: AgentDefinition = {
+      id: 'agent-1',
+      name: 'Review bot',
+      adapter: 'codex',
+      modelId: 'gpt-5.5',
+      reasoningEffort: 'medium',
+      permissionMode: 'approve-all',
+      sessionKey: 'agent:agent-1:main',
+      createdAt: 1000,
+      updatedAt: 1000,
+    }
+    const record: AcpSessionRecord = {
+      schema: 'acpx.session.v1',
+      acpxRecordId: agent.sessionKey,
+      acpSessionId: 'sid-1',
+      agentSessionId: 'inner-1',
+      agentCommand: 'codex --acp',
+      cwd,
+      name: agent.sessionKey,
+      createdAt: timestamp,
+      lastUsedAt: timestamp,
+      lastSeq: 0,
+      eventLog: {
+        active_path: '',
+        segment_count: 0,
+        max_segment_bytes: 0,
+        max_segments: 0,
+      },
+      closed: false,
+      messages: [
+        {
+          User: {
+            id: 'user-1',
+            content: [{ Text: 'inspect history' }],
+          },
+        },
+        {
+          Agent: {
+            content: [
+              { Thinking: { text: 'checking state', signature: null } },
+              {
+                ToolUse: {
+                  id: 'tool-1',
+                  name: 'read_file',
+                  raw_input: '{"path":"src/index.ts"}',
+                  input: { path: 'src/index.ts' },
+                  is_input_complete: true,
+                  thought_signature: null,
+                },
+              },
+              { Text: 'Done.' },
+            ],
+            tool_results: {
+              'tool-1': {
+                tool_use_id: 'tool-1',
+                tool_name: 'read_file',
+                is_error: false,
+                content: { Text: 'file contents' },
+                output: null,
+              },
+            },
+          },
+        },
+      ],
+      updated_at: timestamp,
+      cumulative_token_usage: {},
+      request_token_usage: {},
+      acpx: {},
+    }
+    await createRuntimeStore({ stateDir }).save(record)
+
+    const history = await new AcpxRuntime({ cwd, stateDir }).getHistory({
+      agent,
+      sessionId: 'main',
+    })
+
+    expect(history).toEqual({
+      agentId: 'agent-1',
+      sessionId: 'main',
+      items: [
+        {
+          id: 'agent:agent-1:main:0',
+          agentId: 'agent-1',
+          sessionId: 'main',
+          role: 'user',
+          text: 'inspect history',
+          createdAt: Date.parse(timestamp),
+        },
+        {
+          id: 'agent:agent-1:main:1',
+          agentId: 'agent-1',
+          sessionId: 'main',
+          role: 'assistant',
+          text: 'Done.',
+          createdAt: Date.parse(timestamp) + 1,
+          reasoning: { text: 'checking state' },
+          toolCalls: [
+            {
+              toolCallId: 'tool-1',
+              toolName: 'read_file',
+              status: 'completed',
+              input: { path: 'src/index.ts' },
+              output: 'file contents',
+            },
+          ],
+        },
+      ],
+    })
   })
 
   it('continues the turn when runtime config control is unavailable', async () => {

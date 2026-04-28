@@ -6,8 +6,8 @@
 
 import type {
   AgentDefinition,
+  AgentHistoryEntry,
   AgentPermissionMode,
-  AgentTranscriptEntry,
 } from './agent-types'
 
 export interface AgentStatus {
@@ -24,7 +24,7 @@ export interface AgentSession {
 export interface AgentHistoryPage {
   agentId: string
   sessionId: 'main'
-  items: AgentTranscriptEntry[]
+  items: AgentHistoryEntry[]
 }
 
 export type AgentStreamEvent =

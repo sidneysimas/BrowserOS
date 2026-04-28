@@ -5,12 +5,8 @@
 
 import { describe, expect, it } from 'bun:test'
 import { AgentHarnessService } from '../../../../src/api/services/agents/agent-harness-service'
-import type {
-  AgentDefinition,
-  AgentTranscriptEntry,
-} from '../../../../src/lib/agents/agent-types'
+import type { AgentDefinition } from '../../../../src/lib/agents/agent-types'
 import type { FileAgentStore } from '../../../../src/lib/agents/file-agent-store'
-import type { FileTranscriptStore } from '../../../../src/lib/agents/file-transcript-store'
 import type {
   AgentRuntime,
   AgentStreamEvent,
@@ -19,48 +15,8 @@ import type {
 describe('AgentHarnessService', () => {
   it('creates named agents and sends prompts through the main session', async () => {
     const agents: AgentDefinition[] = []
-    const transcripts: AgentTranscriptEntry[] = []
     const runtimeInputs: unknown[] = []
-    const agentStore = {
-      async list() {
-        return agents
-      },
-      async get(id: string) {
-        return agents.find((agent) => agent.id === id) ?? null
-      },
-      async create(input) {
-        const agent: AgentDefinition = {
-          id: 'agent-1',
-          name: input.name,
-          adapter: input.adapter,
-          modelId: input.modelId,
-          reasoningEffort: input.reasoningEffort,
-          permissionMode: 'approve-all',
-          sessionKey: 'agent:agent-1:main',
-          createdAt: 1000,
-          updatedAt: 1000,
-        }
-        agents.push(agent)
-        return agent
-      },
-      async delete() {
-        return true
-      },
-    } satisfies Partial<FileAgentStore>
-    const transcriptStore = {
-      async append(input) {
-        const entry: AgentTranscriptEntry = {
-          id: String(transcripts.length + 1),
-          createdAt: 1000 + transcripts.length,
-          ...input,
-        }
-        transcripts.push(entry)
-        return entry
-      },
-      async list() {
-        return transcripts
-      },
-    } satisfies Partial<FileTranscriptStore>
+    const agentStore = createAgentStore(agents)
     const runtime: AgentRuntime = {
       async status() {
         return { state: 'ready' }
@@ -89,7 +45,6 @@ describe('AgentHarnessService', () => {
 
     const service = new AgentHarnessService({
       agentStore: agentStore as FileAgentStore,
-      transcriptStore: transcriptStore as FileTranscriptStore,
       runtime,
     })
 
@@ -99,11 +54,12 @@ describe('AgentHarnessService', () => {
       modelId: 'gpt-5.5',
       reasoningEffort: 'medium',
     })
-    const stream = await service.send({
-      agentId: agent.id,
-      message: 'hello',
-    })
-    await stream.pipeTo(new WritableStream())
+    const events = await collectStream(
+      await service.send({
+        agentId: agent.id,
+        message: 'hello',
+      }),
+    )
 
     expect(runtimeInputs[0]).toMatchObject({
       agent,
@@ -112,13 +68,13 @@ describe('AgentHarnessService', () => {
       message: 'hello',
       permissionMode: 'approve-all',
     })
-    expect(transcripts.map(({ role, text }) => ({ role, text }))).toEqual([
-      { role: 'user', text: 'hello' },
-      { role: 'assistant', text: 'answer' },
+    expect(events).toEqual([
+      { type: 'text_delta', text: 'answer', stream: 'output' },
+      { type: 'done', stopReason: 'end_turn' },
     ])
   })
 
-  it('flushes partial assistant text when the response stream is cancelled', async () => {
+  it('reads history from the runtime', async () => {
     const agent: AgentDefinition = {
       id: 'agent-1',
       name: 'Review bot',
@@ -130,35 +86,7 @@ describe('AgentHarnessService', () => {
       createdAt: 1000,
       updatedAt: 1000,
     }
-    const transcripts: AgentTranscriptEntry[] = []
-    const agentStore = {
-      async list() {
-        return [agent]
-      },
-      async get(id: string) {
-        return id === agent.id ? agent : null
-      },
-      async create() {
-        return agent
-      },
-      async delete() {
-        return true
-      },
-    } satisfies Partial<FileAgentStore>
-    const transcriptStore = {
-      async append(input) {
-        const entry: AgentTranscriptEntry = {
-          id: String(transcripts.length + 1),
-          createdAt: 1000 + transcripts.length,
-          ...input,
-        }
-        transcripts.push(entry)
-        return entry
-      },
-      async list() {
-        return transcripts
-      },
-    } satisfies Partial<FileTranscriptStore>
+    const runtimeInputs: unknown[] = []
     const runtime: AgentRuntime = {
       async status() {
         return { state: 'ready' }
@@ -166,39 +94,95 @@ describe('AgentHarnessService', () => {
       async listSessions() {
         return []
       },
-      async getHistory() {
-        return { agentId: agent.id, sessionId: 'main', items: [] }
+      async getHistory(input) {
+        runtimeInputs.push(input)
+        return {
+          agentId: agent.id,
+          sessionId: 'main',
+          items: [
+            {
+              id: 'agent:agent-1:main:1',
+              agentId: agent.id,
+              sessionId: 'main',
+              role: 'assistant',
+              text: 'Done.',
+              createdAt: 1000,
+              reasoning: { text: 'checking state' },
+              toolCalls: [
+                {
+                  toolCallId: 'tool-1',
+                  toolName: 'read_file',
+                  status: 'completed',
+                  input: { path: 'src/index.ts' },
+                  output: 'file contents',
+                },
+              ],
+            },
+          ],
+        }
       },
       async send() {
-        return new ReadableStream<AgentStreamEvent>({
-          start(controller) {
-            controller.enqueue({
-              type: 'text_delta',
-              text: 'partial answer',
-              stream: 'output',
-            })
-          },
-        })
+        return new ReadableStream<AgentStreamEvent>()
       },
     }
     const service = new AgentHarnessService({
-      agentStore: agentStore as FileAgentStore,
-      transcriptStore: transcriptStore as FileTranscriptStore,
+      agentStore: createAgentStore([agent]) as FileAgentStore,
       runtime,
     })
 
-    const reader = (
-      await service.send({
-        agentId: agent.id,
-        message: 'hello',
-      })
-    ).getReader()
-    await reader.read()
-    await reader.cancel()
+    const history = await service.getHistory(agent.id)
 
-    expect(transcripts.map(({ role, text }) => ({ role, text }))).toEqual([
-      { role: 'user', text: 'hello' },
-      { role: 'assistant', text: 'partial answer' },
-    ])
+    expect(runtimeInputs).toEqual([{ agent, sessionId: 'main' }])
+    expect(history.items[0]).toMatchObject({
+      role: 'assistant',
+      reasoning: { text: 'checking state' },
+      toolCalls: [{ toolName: 'read_file' }],
+    })
   })
 })
+
+function createAgentStore(agents: AgentDefinition[]) {
+  return {
+    async list() {
+      return agents
+    },
+    async get(id: string) {
+      return agents.find((agent) => agent.id === id) ?? null
+    },
+    async create(input) {
+      const agent: AgentDefinition = {
+        id: `agent-${agents.length + 1}`,
+        name: input.name,
+        adapter: input.adapter,
+        modelId: input.modelId,
+        reasoningEffort: input.reasoningEffort,
+        permissionMode: 'approve-all',
+        sessionKey: `agent:agent-${agents.length + 1}:main`,
+        createdAt: 1000,
+        updatedAt: 1000,
+      }
+      agents.push(agent)
+      return agent
+    },
+    async delete() {
+      return true
+    },
+  } satisfies Partial<FileAgentStore>
+}
+
+async function collectStream(
+  stream: ReadableStream<AgentStreamEvent>,
+): Promise<AgentStreamEvent[]> {
+  const reader = stream.getReader()
+  const events: AgentStreamEvent[] = []
+  try {
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      events.push(value)
+    }
+  } finally {
+    reader.releaseLock()
+  }
+  return events
+}

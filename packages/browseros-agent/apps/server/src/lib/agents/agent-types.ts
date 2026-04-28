@@ -38,11 +38,28 @@ export interface AgentAdapterDescriptor {
   }>
 }
 
-export interface AgentTranscriptEntry {
+export interface AgentHistoryReasoning {
+  text: string
+  durationMs?: number
+}
+
+export interface AgentHistoryToolCall {
+  toolCallId?: string
+  toolName: string
+  status: 'pending' | 'running' | 'completed' | 'failed'
+  input?: unknown
+  output?: unknown
+  error?: string
+  durationMs?: number
+}
+
+export interface AgentHistoryEntry {
   id: string
   agentId: string
   sessionId: 'main'
   role: 'user' | 'assistant'
   text: string
   createdAt: number
+  reasoning?: AgentHistoryReasoning
+  toolCalls?: AgentHistoryToolCall[]
 }

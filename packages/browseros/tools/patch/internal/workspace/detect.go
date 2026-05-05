@@ -1,15 +1,23 @@
 package workspace
 
 import (
+	"errors"
 	"fmt"
 	"path/filepath"
 	"slices"
 	"strings"
 )
 
+// Detect finds the registered Chromium checkout that contains cwd.
 func Detect(reg *Registry, cwd string) (Entry, error) {
+	return DetectForCommand(reg, cwd, "browseros-patch diff")
+}
+
+// DetectForCommand finds the checkout for cwd and includes a command-specific
+// named-checkout example when cwd is not registered.
+func DetectForCommand(reg *Registry, cwd string, commandPath string) (Entry, error) {
 	if len(reg.Workspaces) == 0 {
-		return Entry{}, fmt.Errorf("no workspaces registered yet")
+		return Entry{}, fmt.Errorf(`no Chromium checkouts registered; run "browseros-patch add <name> <path>"`)
 	}
 	abs, err := filepath.Abs(cwd)
 	if err != nil {
@@ -30,12 +38,19 @@ func Detect(reg *Registry, cwd string) (Entry, error) {
 		}
 	}
 	if bestLen == -1 {
-		return Entry{}, detectError(clean, realClean, reg.Workspaces)
+		return Entry{}, errors.New(detectErrorMessage(reg, clean, realClean, commandPath))
 	}
 	return best, nil
 }
 
+// Resolve resolves a checkout from --src, an explicit name, or cwd detection.
 func Resolve(reg *Registry, name string, cwd string, src string) (Entry, error) {
+	return ResolveForCommand(reg, name, cwd, src, "browseros-patch diff")
+}
+
+// ResolveForCommand resolves a checkout and tailors cwd detection errors for a
+// specific command such as "browseros-patch diff".
+func ResolveForCommand(reg *Registry, name string, cwd string, src string, commandPath string) (Entry, error) {
 	if src != "" {
 		path, err := NormalizeWorkspacePath(src)
 		if err != nil {
@@ -46,7 +61,34 @@ func Resolve(reg *Registry, name string, cwd string, src string) (Entry, error) 
 	if name != "" {
 		return reg.Get(name)
 	}
-	return Detect(reg, cwd)
+	return DetectForCommand(reg, cwd, commandPath)
+}
+
+func detectErrorMessage(reg *Registry, cleanCWD string, resolvedCWD string, commandPath string) string {
+	var builder strings.Builder
+	builder.WriteString("not inside a registered Chromium checkout\n")
+	builder.WriteString("cwd: " + cleanCWD)
+	if resolvedCWD != cleanCWD {
+		builder.WriteString("\nresolved cwd: " + resolvedCWD)
+	}
+	builder.WriteString("\nregistered checkouts:")
+	sorted := append([]Entry(nil), reg.Workspaces...)
+	slices.SortFunc(sorted, func(a, b Entry) int {
+		return strings.Compare(a.Name, b.Name)
+	})
+	for _, ws := range sorted {
+		builder.WriteString(fmt.Sprintf("\n  %s  %s", ws.Name, ws.Path))
+	}
+	builder.WriteString("\ntry: " + namedCheckoutExample(sorted, commandPath))
+	return builder.String()
+}
+
+func namedCheckoutExample(workspaces []Entry, commandPath string) string {
+	commandPath = strings.TrimSpace(commandPath)
+	if commandPath == "" {
+		commandPath = "browseros-patch diff"
+	}
+	return commandPath + " " + workspaces[0].Name
 }
 
 func canonicalPath(path string) string {
@@ -59,32 +101,4 @@ func canonicalPath(path string) string {
 
 func containsPath(path string, base string) bool {
 	return path == base || strings.HasPrefix(path, base+string(filepath.Separator))
-}
-
-func detectError(cwd string, resolvedCWD string, workspaces []Entry) error {
-	var builder strings.Builder
-	builder.WriteString(`not inside a registered workspace; run "browseros-patch list" to inspect workspaces or pass one by name`)
-	builder.WriteString("\n")
-	builder.WriteString("cwd: ")
-	builder.WriteString(cwd)
-	if resolvedCWD != cwd {
-		builder.WriteString("\nresolved cwd: ")
-		builder.WriteString(resolvedCWD)
-	}
-	if len(workspaces) > 0 {
-		builder.WriteString("\nregistered workspaces:")
-		sorted := append([]Entry(nil), workspaces...)
-		slices.SortFunc(sorted, func(a, b Entry) int {
-			return strings.Compare(a.Name, b.Name)
-		})
-		for _, ws := range sorted {
-			builder.WriteString("\n  ")
-			builder.WriteString(ws.Name)
-			builder.WriteString("  ")
-			builder.WriteString(ws.Path)
-		}
-		builder.WriteString("\nexample: browseros-patch diff ")
-		builder.WriteString(sorted[0].Name)
-	}
-	return fmt.Errorf("%s", builder.String())
 }

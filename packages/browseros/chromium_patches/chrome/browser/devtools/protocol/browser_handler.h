@@ -1,5 +1,5 @@
 diff --git a/chrome/browser/devtools/protocol/browser_handler.h b/chrome/browser/devtools/protocol/browser_handler.h
-index e1424aa52cbf6..412380c066d63 100644
+index e1424aa52cbf6..aa49d245cc034 100644
 --- a/chrome/browser/devtools/protocol/browser_handler.h
 +++ b/chrome/browser/devtools/protocol/browser_handler.h
 @@ -5,9 +5,17 @@
@@ -35,7 +35,7 @@ index e1424aa52cbf6..412380c066d63 100644
    protocol::Response GetWindowBounds(
        int window_id,
        std::unique_ptr<protocol::Browser::Bounds>* out_bounds) override;
-@@ -41,6 +57,101 @@ class BrowserHandler : public protocol::Browser::Backend {
+@@ -41,6 +57,108 @@ class BrowserHandler : public protocol::Browser::Backend {
    protocol::Response AddPrivacySandboxEnrollmentOverride(
        const std::string& in_url) override;
  
@@ -54,6 +54,13 @@ index e1424aa52cbf6..412380c066d63 100644
 +      std::unique_ptr<protocol::Browser::WindowInfo>* out_window) override;
 +  protocol::Response CloseWindow(int window_id) override;
 +  protocol::Response ActivateWindow(int window_id) override;
++  protocol::Response SetWindowVisibility(
++      int window_id,
++      bool visible,
++      std::optional<bool> activate,
++      std::unique_ptr<protocol::Browser::WindowInfo>* out_window,
++      bool* out_replaced,
++      int* out_previous_window_id) override;
 +
 +  // Tab management
 +  protocol::Response GetTabs(

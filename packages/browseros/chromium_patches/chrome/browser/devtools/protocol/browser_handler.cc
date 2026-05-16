@@ -1,10 +1,17 @@
 diff --git a/chrome/browser/devtools/protocol/browser_handler.cc b/chrome/browser/devtools/protocol/browser_handler.cc
-index 30bd52d09c3fc..66746cef3fe0e 100644
+index 30bd52d09c3fc..5ef348c475174 100644
 --- a/chrome/browser/devtools/protocol/browser_handler.cc
 +++ b/chrome/browser/devtools/protocol/browser_handler.cc
-@@ -8,19 +8,32 @@
+@@ -4,23 +4,39 @@
+ 
+ #include "chrome/browser/devtools/protocol/browser_handler.h"
+ 
++#include <numeric>
+ #include <set>
++#include <variant>
  #include <vector>
  
++#include "base/check.h"
  #include "base/functional/bind.h"
 +#include "base/memory/raw_ptr.h"
  #include "base/memory/ref_counted_memory.h"
@@ -35,7 +42,7 @@ index 30bd52d09c3fc..66746cef3fe0e 100644
  #include "content/public/browser/browser_task_traits.h"
  #include "content/public/browser/browser_thread.h"
  #include "content/public/browser/devtools_agent_host.h"
-@@ -30,10 +43,32 @@
+@@ -30,10 +46,32 @@
  #include "ui/gfx/image/image.h"
  #include "ui/gfx/image/image_png_rep.h"
  
@@ -68,7 +75,7 @@ index 30bd52d09c3fc..66746cef3fe0e 100644
  BrowserWindow* GetBrowserWindow(int window_id) {
    BrowserWindow* result = nullptr;
    ForEachCurrentBrowserWindowInterfaceOrderedByActivation(
-@@ -72,12 +107,394 @@ std::unique_ptr<protocol::Browser::Bounds> GetBrowserWindowBounds(
+@@ -72,12 +110,468 @@ std::unique_ptr<protocol::Browser::Bounds> GetBrowserWindowBounds(
        .Build();
  }
  
@@ -210,6 +217,80 @@ index 30bd52d09c3fc..66746cef3fe0e 100644
 +  }
 +
 +  return info;
++}
++
++std::vector<int> GetAllTabIndices(TabStripModel* tab_strip) {
++  std::vector<int> indices(tab_strip->count());
++  std::iota(indices.begin(), indices.end(), 0);
++  return indices;
++}
++
++void ShowBrowserWindowForVisibility(BrowserWindow* window,
++                                    bool hidden,
++                                    bool activate) {
++  if (hidden) {
++    window->ShowInactive();
++    return;
++  }
++  if (activate) {
++    window->Show();
++    window->Activate();
++    return;
++  }
++  window->ShowInactive();
++}
++
++// Moves every tab and tab collection from one Browser to another while
++// preserving tab strip structure that would be lost by raw WebContents moves.
++void MoveAllTabsToReplacementWindow(Browser* source, Browser* target) {
++  TabStripModel* source_model = source->tab_strip_model();
++  TabStripModel* target_model = target->tab_strip_model();
++  std::vector<int> tab_indices = GetAllTabIndices(source_model);
++  if (tab_indices.empty()) {
++    return;
++  }
++
++  const tabs::TabInterface* active_tab = source_model->GetActiveTab();
++  for (auto& tab_or_collection :
++       source_model->DetachTabsAndCollectionsForInsertion(tab_indices)) {
++    if (auto tab =
++            std::get_if<std::unique_ptr<DetachedTab>>(&tab_or_collection)) {
++      const bool active = active_tab == tab->get()->tab.get();
++      const bool pinned = tab->get()->was_pinned_at_time_of_removal;
++      const int add_types = (active ? AddTabTypes::ADD_ACTIVE : 0) |
++                            (pinned ? AddTabTypes::ADD_PINNED : 0);
++      target_model->InsertDetachedTabAt(target_model->count(),
++                                        std::move(tab->get()->tab), add_types);
++      continue;
++    }
++
++    auto collection =
++        std::get_if<std::unique_ptr<DetachedTabCollection>>(&tab_or_collection);
++    CHECK(collection);
++    if (std::holds_alternative<std::unique_ptr<tabs::TabGroupTabCollection>>(
++            collection->get()->collection_)) {
++      target_model->InsertDetachedTabGroupAt(std::move(*collection),
++                                             target_model->count());
++    } else {
++      const bool pinned = collection->get()->pinned_;
++      target_model->InsertDetachedSplitTabAt(
++          std::move(*collection),
++          pinned ? target_model->IndexOfFirstNonPinnedTab()
++                 : target_model->count(),
++          pinned);
++    }
++  }
++
++  const int active_index = target_model->GetIndexOfTab(active_tab);
++  if (target_model->ContainsIndex(active_index) &&
++      target_model->GetActiveTab() != active_tab) {
++    target_model->ActivateTabAt(active_index);
++  }
++}
++
++gfx::Rect GetReplacementInitialBounds(ui::BaseWindow* window) {
++  return window->IsMinimized() ? window->GetRestoredBounds()
++                               : window->GetBounds();
 +}
 +
 +struct TabLookupResult {
@@ -464,7 +545,7 @@ index 30bd52d09c3fc..66746cef3fe0e 100644
    if (dispatcher)
      protocol::Browser::Dispatcher::wire(dispatcher, this);
  }
-@@ -120,6 +537,65 @@ Response BrowserHandler::GetWindowForTarget(
+@@ -120,6 +614,65 @@ Response BrowserHandler::GetWindowForTarget(
    return Response::Success();
  }
  
@@ -530,7 +611,7 @@ index 30bd52d09c3fc..66746cef3fe0e 100644
  Response BrowserHandler::GetWindowBounds(
      int window_id,
      std::unique_ptr<protocol::Browser::Bounds>* out_bounds) {
-@@ -297,3 +773,749 @@ protocol::Response BrowserHandler::AddPrivacySandboxEnrollmentOverride(
+@@ -297,3 +850,810 @@ protocol::Response BrowserHandler::AddPrivacySandboxEnrollmentOverride(
        net::SchemefulSite(url_to_add));
    return Response::Success();
  }
@@ -637,6 +718,65 @@ index 30bd52d09c3fc..66746cef3fe0e 100644
 +  return Response::Success();
 +}
 +
++Response BrowserHandler::SetWindowVisibility(
++    int window_id,
++    bool visible,
++    std::optional<bool> activate,
++    std::unique_ptr<protocol::Browser::WindowInfo>* out_window,
++    bool* out_replaced,
++    int* out_previous_window_id) {
++  BrowserWindowInterface* source_bwi = GetBrowserWindowInterface(window_id);
++  if (!source_bwi) {
++    return Response::ServerError("Browser window not found");
++  }
++
++  const bool target_hidden = !visible;
++  Browser* source_browser = source_bwi->GetBrowserForMigrationOnly();
++  const bool source_hidden = source_browser->is_hidden();
++  *out_previous_window_id = window_id;
++
++  if (source_hidden == target_hidden) {
++    if (visible && activate.value_or(false)) {
++      source_bwi->GetWindow()->Activate();
++    }
++    *out_replaced = false;
++    *out_window = BuildWindowInfo(source_bwi, source_hidden);
++    return Response::Success();
++  }
++
++  if (target_hidden && !HiddenWindowsSupportedOnThisPlatform()) {
++    return Response::ServerError(
++        "Hidden windows are not yet supported on this platform. "
++        "Use X11 (XDG_SESSION_TYPE=x11), macOS, or Windows.");
++  }
++
++  Browser::CreateParams params(source_bwi->GetType(), source_bwi->GetProfile(),
++                               true);
++  params.hidden = target_hidden;
++  params.initial_bounds = GetReplacementInitialBounds(source_bwi->GetWindow());
++
++  Browser* replacement_browser = Browser::Create(params);
++  BrowserWindowInterface* replacement_bwi =
++      GetBrowserWindowInterface(replacement_browser->session_id().id());
++  if (!replacement_bwi) {
++    replacement_browser->window()->Close();
++    return Response::ServerError("Failed to create replacement window");
++  }
++
++  base::WeakPtr<Browser> source_weak = source_browser->AsWeakPtr();
++  MoveAllTabsToReplacementWindow(source_browser, replacement_browser);
++  if (source_weak) {
++    source_weak->window()->Close();
++  }
++
++  ShowBrowserWindowForVisibility(replacement_browser->window(), target_hidden,
++                                 activate.value_or(false));
++
++  *out_replaced = true;
++  *out_window = BuildWindowInfo(replacement_bwi, target_hidden);
++  return Response::Success();
++}
++
 +// --- Tab Management ---
 +
 +Response BrowserHandler::GetTabs(
@@ -712,7 +852,8 @@ index 30bd52d09c3fc..66746cef3fe0e 100644
 +    content::WebContents* active_wc = tab_strip->GetActiveWebContents();
 +    if (active_wc) {
 +      int index = tab_strip->GetIndexOfWebContents(active_wc);
-+      *out_tab = BuildTabInfo(active_wc, bwi, index, false);
++      const bool is_hidden = bwi->GetBrowserForMigrationOnly()->is_hidden();
++      *out_tab = BuildTabInfo(active_wc, bwi, index, is_hidden);
 +    }
 +  }
 +  return Response::Success();
@@ -776,7 +917,9 @@ index 30bd52d09c3fc..66746cef3fe0e 100644
 +    new_index = tab_strip->SetTabPinned(new_index, true);
 +  }
 +
-+  *out_tab = BuildTabInfo(new_wc, bwi, new_index, false);
++  *out_tab =
++      BuildTabInfo(new_wc, bwi, new_index,
++                   bwi->GetBrowserForMigrationOnly()->is_hidden());
 +  return Response::Success();
 +}
 +
@@ -1279,4 +1422,3 @@ index 30bd52d09c3fc..66746cef3fe0e 100644
 +  *out_group = BuildTabGroupInfo(target_bwi, new_gid);
 +  return Response::Success();
 +}
-+

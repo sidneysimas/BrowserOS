@@ -46,9 +46,6 @@ describe('buildSidepanelPreparedSendMessagesRequest', () => {
       target: acpTarget,
       fallbackProvider,
       message: 'Inspect the current tab',
-      approvalResponses: [
-        { approvalId: 'approval-1', approved: true, reason: 'ok' },
-      ],
       ...commonRequestInput(),
     })
 
@@ -72,23 +69,19 @@ describe('buildSidepanelPreparedSendMessagesRequest', () => {
     })
   })
 
-  it('keeps tool approval retry payloads scoped to LLM chat', () => {
+  it('uses fallback provider when no explicit target is selected', () => {
     const request = buildSidepanelPreparedSendMessagesRequest({
       agentServerUrl: 'http://127.0.0.1:5151',
-      target: llmTarget,
+      target: undefined,
       fallbackProvider,
-      approvalResponses: [
-        { approvalId: 'approval-1', approved: false, reason: 'no' },
-      ],
       ...commonRequestInput(),
     })
 
     expect(request.api).toBe('http://127.0.0.1:5151/chat')
     expect(request.body).toMatchObject({
       message: '',
-      toolApprovalResponses: [
-        { approvalId: 'approval-1', approved: false, reason: 'no' },
-      ],
+      provider: 'browseros',
+      model: 'gpt-5',
     })
   })
 })
@@ -112,7 +105,6 @@ function commonRequestInput() {
       url: 'https://example.com',
       title: 'Example',
     },
-    toolApprovalConfig: { categories: { navigation: true } },
   }
 }
 

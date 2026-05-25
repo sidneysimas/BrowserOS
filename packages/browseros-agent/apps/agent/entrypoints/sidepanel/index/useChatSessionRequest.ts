@@ -1,9 +1,6 @@
 import type { Provider } from '../../../components/chat/chatComponentTypes'
 import type { LlmProviderConfig } from '../../../lib/llm-providers/types'
-import {
-  type ApprovalResponseData,
-  buildChatRequestBody,
-} from '../../../lib/messaging/server/buildChatRequestBody'
+import { buildChatRequestBody } from '../../../lib/messaging/server/buildChatRequestBody'
 import {
   type SidepanelChatTarget,
   toLlmProviderConfig,
@@ -13,7 +10,7 @@ type LlmChatRequestBodyInput = Parameters<typeof buildChatRequestBody>[0]
 
 type CommonSidepanelRequestInput = Omit<
   LlmChatRequestBodyInput,
-  'provider' | 'message' | 'toolApprovalResponses' | 'isScheduledTask'
+  'provider' | 'message' | 'isScheduledTask'
 >
 
 interface BuildSidepanelPreparedSendMessagesRequestInput
@@ -22,7 +19,6 @@ interface BuildSidepanelPreparedSendMessagesRequestInput
   target: SidepanelChatTarget | undefined
   fallbackProvider: LlmProviderConfig
   message?: string
-  approvalResponses?: ApprovalResponseData[] | null
 }
 
 export function buildSidepanelPreparedSendMessagesRequest({
@@ -30,7 +26,6 @@ export function buildSidepanelPreparedSendMessagesRequest({
   target,
   fallbackProvider,
   message,
-  approvalResponses,
   ...common
 }: BuildSidepanelPreparedSendMessagesRequestInput) {
   if (target?.kind === 'acp') {
@@ -55,7 +50,6 @@ export function buildSidepanelPreparedSendMessagesRequest({
       ...common,
       provider,
       message,
-      toolApprovalResponses: approvalResponses ?? undefined,
     }),
   }
 }

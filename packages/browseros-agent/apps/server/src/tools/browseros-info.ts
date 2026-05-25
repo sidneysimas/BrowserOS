@@ -1,7 +1,5 @@
 import { z } from 'zod'
-import { defineToolWithCategory } from './framework'
-
-const defineAssistantTool = defineToolWithCategory('assistant')
+import { defineTool } from './framework'
 
 const BROWSEROS_INFO = `# BrowserOS — The Open-Source AI Browser
 
@@ -99,7 +97,7 @@ function getTopicContent(topic: string): string {
     : BROWSEROS_INFO.slice(startIdx).trim()
 }
 
-export const browseros_info = defineAssistantTool({
+export const browseros_info = defineTool({
   name: 'browseros_info',
   description:
     'Get information about BrowserOS features, capabilities, and documentation links. Use when users ask "What is BrowserOS?", "What can BrowserOS do?", or about specific features.',

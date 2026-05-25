@@ -1,8 +1,7 @@
 import { z } from 'zod'
 import type { BookmarkNode } from '../browser/bookmarks'
-import { defineToolWithCategory } from './framework'
+import { defineTool } from './framework'
 
-const defineManagementTool = defineToolWithCategory('data-modification')
 const bookmarkNodeSchema = z.object({
   id: z.string(),
   title: z.string(),
@@ -27,7 +26,7 @@ function formatBookmarkTree(nodes: BookmarkNode[]): string {
   return lines.join('\n')
 }
 
-export const get_bookmarks = defineManagementTool({
+export const get_bookmarks = defineTool({
   name: 'get_bookmarks',
   description: 'List all bookmarks in the browser',
   input: z.object({}),
@@ -49,7 +48,7 @@ export const get_bookmarks = defineManagementTool({
   },
 })
 
-export const create_bookmark = defineManagementTool({
+export const create_bookmark = defineTool({
   name: 'create_bookmark',
   description: 'Create a new bookmark or folder. Omit url to create a folder.',
   input: z.object({
@@ -77,7 +76,7 @@ export const create_bookmark = defineManagementTool({
   },
 })
 
-export const remove_bookmark = defineManagementTool({
+export const remove_bookmark = defineTool({
   name: 'remove_bookmark',
   description: 'Remove a bookmark or folder by ID (recursive)',
   input: z.object({
@@ -94,7 +93,7 @@ export const remove_bookmark = defineManagementTool({
   },
 })
 
-export const update_bookmark = defineManagementTool({
+export const update_bookmark = defineTool({
   name: 'update_bookmark',
   description: 'Update a bookmark title or URL',
   input: z.object({
@@ -116,7 +115,7 @@ export const update_bookmark = defineManagementTool({
   },
 })
 
-export const move_bookmark = defineManagementTool({
+export const move_bookmark = defineTool({
   name: 'move_bookmark',
   description: 'Move a bookmark or folder into a different folder',
   input: z.object({
@@ -143,7 +142,7 @@ export const move_bookmark = defineManagementTool({
   },
 })
 
-export const search_bookmarks = defineManagementTool({
+export const search_bookmarks = defineTool({
   name: 'search_bookmarks',
   description: 'Search bookmarks by title or URL',
   input: z.object({

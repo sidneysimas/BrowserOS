@@ -1,7 +1,6 @@
 import { z } from 'zod'
-import { defineToolWithCategory } from './framework'
+import { defineTool } from './framework'
 
-const defineManagementTool = defineToolWithCategory('data-modification')
 const TAB_GROUP_COLORS = [
   'grey',
   'blue',
@@ -23,7 +22,7 @@ const tabGroupWithPageIdsSchema = z.object({
   pageIds: z.array(z.number()),
 })
 
-export const list_tab_groups = defineManagementTool({
+export const list_tab_groups = defineTool({
   name: 'list_tab_groups',
   description: 'List all tab groups in the browser',
   input: z.object({}),
@@ -56,7 +55,7 @@ export const list_tab_groups = defineManagementTool({
   },
 })
 
-export const group_tabs = defineManagementTool({
+export const group_tabs = defineTool({
   name: 'group_tabs',
   description:
     'Group pages together with an optional title. Color is auto-assigned; use update_tab_group to change it.',
@@ -86,7 +85,7 @@ export const group_tabs = defineManagementTool({
   },
 })
 
-export const update_tab_group = defineManagementTool({
+export const update_tab_group = defineTool({
   name: 'update_tab_group',
   description: "Update a tab group's title, color, or collapsed state",
   input: z.object({
@@ -131,7 +130,7 @@ export const update_tab_group = defineManagementTool({
   },
 })
 
-export const ungroup_tabs = defineManagementTool({
+export const ungroup_tabs = defineTool({
   name: 'ungroup_tabs',
   description: 'Remove pages from their groups',
   input: z.object({
@@ -155,7 +154,7 @@ export const ungroup_tabs = defineManagementTool({
   },
 })
 
-export const close_tab_group = defineManagementTool({
+export const close_tab_group = defineTool({
   name: 'close_tab_group',
   description: 'Close a tab group and all its tabs',
   input: z.object({

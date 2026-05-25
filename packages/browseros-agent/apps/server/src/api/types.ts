@@ -46,20 +46,6 @@ export const ChatRequestSchema = AgentLLMConfigSchema.extend({
   mode: z.enum(['chat', 'agent']).optional().default('agent'),
   origin: z.enum(['sidepanel', 'newtab']).optional().default('sidepanel'),
   declinedApps: z.array(z.string()).optional(),
-  toolApprovalConfig: z
-    .object({
-      categories: z.record(z.boolean()),
-    })
-    .optional(),
-  toolApprovalResponses: z
-    .array(
-      z.object({
-        approvalId: z.string(),
-        approved: z.boolean(),
-        reason: z.string().optional(),
-      }),
-    )
-    .optional(),
   selectedText: z.string().optional(),
   selectedTextSource: z
     .object({

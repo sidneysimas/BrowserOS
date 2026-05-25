@@ -1,12 +1,11 @@
 import { CONTENT_LIMITS } from '@browseros/shared/constants/limits'
 import { z } from 'zod'
 import type { ConsoleLevel } from '../browser/console-collector'
-import { defineToolWithCategory } from './framework'
+import { defineTool } from './framework'
 
 const pageParam = z.number().describe('Page ID (from list_pages)')
-const defineObservationTool = defineToolWithCategory('observation')
 
-export const get_console_logs = defineObservationTool({
+export const get_console_logs = defineTool({
   name: 'get_console_logs',
   description:
     'Get browser console output (logs, warnings, errors, exceptions) for a page. Use to debug JavaScript errors, failed network requests, or unexpected page behavior.',

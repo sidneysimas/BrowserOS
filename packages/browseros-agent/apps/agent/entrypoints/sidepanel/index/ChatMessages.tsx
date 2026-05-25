@@ -37,8 +37,6 @@ interface ChatMessagesProps {
   showDontShowAgain: boolean
   onTakeSurvey: (opts?: { dontShowAgain?: boolean }) => void
   onDismissJtbdPopup: (dontShowAgain: boolean) => void
-  onToolApprove?: (approvalId: string) => void
-  onToolDeny?: (approvalId: string) => void
 }
 
 export const ChatMessages: FC<ChatMessagesProps> = ({
@@ -53,8 +51,6 @@ export const ChatMessages: FC<ChatMessagesProps> = ({
   showDontShowAgain,
   onTakeSurvey,
   onDismissJtbdPopup,
-  onToolApprove,
-  onToolDeny,
 }) => {
   const isStreaming = status === 'streaming' || status === 'submitted'
 
@@ -118,8 +114,6 @@ export const ChatMessages: FC<ChatMessagesProps> = ({
                                 isLastBatch={segment.key === lastToolBatchKey}
                                 isLastMessage={isLastMessage}
                                 isStreaming={isStreaming}
-                                onApprove={onToolApprove}
-                                onDeny={onToolDeny}
                               />
                             )
                           case 'nudge':

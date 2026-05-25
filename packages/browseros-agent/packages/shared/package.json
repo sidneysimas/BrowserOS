@@ -41,10 +41,6 @@
       "types": "./src/constants/hermes.ts",
       "default": "./src/constants/hermes.ts"
     },
-    "./constants/tool-approval": {
-      "types": "./src/constants/tool-approval.ts",
-      "default": "./src/constants/tool-approval.ts"
-    },
     "./constants/role-aware-agents": {
       "types": "./src/constants/role-aware-agents.ts",
       "default": "./src/constants/role-aware-agents.ts"

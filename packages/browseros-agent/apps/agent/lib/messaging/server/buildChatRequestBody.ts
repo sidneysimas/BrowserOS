@@ -1,12 +1,5 @@
 import type { ChatMode } from '@/entrypoints/sidepanel/index/chatTypes'
 import type { LlmProviderConfig } from '@/lib/llm-providers/types'
-import type { ToolApprovalConfig } from '@/lib/tool-approvals/types'
-
-export interface ApprovalResponseData {
-  approvalId: string
-  approved: boolean
-  reason?: string
-}
 
 export interface ChatHistoryEntry {
   role: 'user' | 'assistant'
@@ -48,18 +41,7 @@ interface ChatRequestBodyParams {
     url: string
     title: string
   }
-  toolApprovalConfig?: ToolApprovalConfig
-  toolApprovalResponses?: ApprovalResponseData[]
   isScheduledTask?: boolean
-}
-
-export const toRequestToolApprovalConfig = (
-  approvalConfig?: ToolApprovalConfig,
-): ToolApprovalConfig | undefined => {
-  if (!approvalConfig) return undefined
-  return Object.values(approvalConfig.categories).some(Boolean)
-    ? approvalConfig
-    : undefined
 }
 
 export const buildChatRequestBody = ({
@@ -75,8 +57,6 @@ export const buildChatRequestBody = ({
   declinedApps,
   selectedText,
   selectedTextSource,
-  toolApprovalConfig,
-  toolApprovalResponses,
   isScheduledTask,
 }: ChatRequestBodyParams) => ({
   message,
@@ -105,7 +85,5 @@ export const buildChatRequestBody = ({
   declinedApps: declinedApps?.length ? declinedApps : undefined,
   selectedText,
   selectedTextSource,
-  toolApprovalConfig: toRequestToolApprovalConfig(toolApprovalConfig),
-  toolApprovalResponses,
   isScheduledTask,
 })

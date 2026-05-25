@@ -1,5 +1,4 @@
 import type { LanguageModelV2ToolResultOutput } from '@ai-sdk/provider'
-import type { ToolApprovalConfig } from '@browseros/shared/constants/tool-approval'
 import { type ToolSet, tool } from 'ai'
 import { logger } from '../lib/logger'
 import { metrics } from '../lib/metrics'
@@ -35,21 +34,9 @@ function contentToModelOutput(
   }
 }
 
-export function getApprovedBrowserToolNames(
-  registry: ToolRegistry,
-  approvalConfig?: ToolApprovalConfig,
-): string[] {
-  if (!approvalConfig) return []
-  return registry
-    .all()
-    .filter((def) => approvalConfig.categories[def.approvalCategory] === true)
-    .map((def) => def.name)
-}
-
 export function buildBrowserToolSet(
   registry: ToolRegistry,
   ctx: ToolContext,
-  approvalConfig?: ToolApprovalConfig,
 ): ToolSet {
   const toolSet: ToolSet = {}
 
@@ -57,7 +44,6 @@ export function buildBrowserToolSet(
     toolSet[def.name] = tool({
       description: def.description,
       inputSchema: def.input,
-      needsApproval: approvalConfig?.categories[def.approvalCategory] === true,
       execute: async (params) => {
         const startTime = performance.now()
         try {

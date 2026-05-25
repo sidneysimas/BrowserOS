@@ -1,7 +1,6 @@
 import { z } from 'zod'
-import { defineToolWithCategory } from './framework'
+import { defineTool } from './framework'
 
-const defineManagementTool = defineToolWithCategory('data-modification')
 const windowInfoSchema = z.object({
   windowId: z.number(),
   windowType: z.enum([
@@ -27,7 +26,7 @@ const windowInfoSchema = z.object({
   activeTabId: z.number().optional(),
 })
 
-export const list_windows = defineManagementTool({
+export const list_windows = defineTool({
   name: 'list_windows',
   description: 'List all browser windows',
   input: z.object({}),
@@ -60,7 +59,7 @@ export const list_windows = defineManagementTool({
   },
 })
 
-export const create_window = defineManagementTool({
+export const create_window = defineTool({
   name: 'create_window',
   description: 'Create a new browser window',
   input: z.object({
@@ -77,7 +76,7 @@ export const create_window = defineManagementTool({
   },
 })
 
-export const create_hidden_window = defineManagementTool({
+export const create_hidden_window = defineTool({
   name: 'create_hidden_window',
   description:
     'Create a new hidden browser window. Hidden windows are not visible to the user and useful for background automation.',
@@ -92,7 +91,7 @@ export const create_hidden_window = defineManagementTool({
   },
 })
 
-export const close_window = defineManagementTool({
+export const close_window = defineTool({
   name: 'close_window',
   description: 'Close a browser window',
   input: z.object({
@@ -110,7 +109,7 @@ export const close_window = defineManagementTool({
   },
 })
 
-export const activate_window = defineManagementTool({
+export const activate_window = defineTool({
   name: 'activate_window',
   description: 'Activate (focus) a browser window',
   input: z.object({
@@ -127,7 +126,7 @@ export const activate_window = defineManagementTool({
   },
 })
 
-export const set_window_visibility = defineManagementTool({
+export const set_window_visibility = defineTool({
   name: 'set_window_visibility',
   description:
     'Set a browser window visible or hidden. Returns the new window ID because BrowserOS may replace the window during the transition.',

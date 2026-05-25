@@ -29,7 +29,6 @@ import { MCPSettingsPage } from './mcp-settings/MCPSettingsPage'
 import { ProfilePage } from './profile/ProfilePage'
 import { ScheduledTasksPage } from './scheduled-tasks/ScheduledTasksPage'
 import { SearchProviderPage } from './search-provider/SearchProviderPage'
-import { ToolApprovalsPage } from './tool-approvals/ToolApprovalsPage'
 import { UsagePage } from './usage/UsagePage'
 
 function getSurveyParams(): { maxTurns?: number; experimentId?: string } {
@@ -133,9 +132,7 @@ export const App: FC = () => {
             <Route path="search" element={<SearchProviderPage />} />
             <Route path="survey" element={<SurveyPage {...surveyParams} />} />
             <Route path="usage" element={<UsagePage />} />
-            {alphaEnabled ? (
-              <Route path="approvals" element={<ToolApprovalsPage />} />
-            ) : null}
+            <Route path="*" element={<Navigate to="/settings/ai" replace />} />
           </Route>
         </Route>
 

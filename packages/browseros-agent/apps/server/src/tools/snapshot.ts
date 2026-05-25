@@ -1,14 +1,11 @@
 import { TOOL_LIMITS } from '@browseros/shared/constants/limits'
 import { z } from 'zod'
-import { defineToolWithCategory } from './framework'
+import { defineTool } from './framework'
 import { writeTempToolOutputFile } from './output-file'
 
 const pageParam = z.number().describe('Page ID (from list_pages)')
-const defineObservationTool = defineToolWithCategory('observation')
-const defineCaptureTool = defineToolWithCategory('screenshots')
-const defineScriptTool = defineToolWithCategory('scripts')
 
-export const take_snapshot = defineObservationTool({
+export const take_snapshot = defineTool({
   name: 'take_snapshot',
   description:
     'Get a concise snapshot of interactive elements on the page. Returns a flat list with element IDs (e.g. [47]) that can be used with click, fill, hover, etc. Always take a snapshot before interacting with page elements.',
@@ -25,7 +22,7 @@ export const take_snapshot = defineObservationTool({
   },
 })
 
-export const take_enhanced_snapshot = defineObservationTool({
+export const take_enhanced_snapshot = defineTool({
   name: 'take_enhanced_snapshot',
   description:
     'Get a detailed accessibility tree of the page with structural context (headings, landmarks, dialogs) and cursor-interactive elements that ARIA misses. Use when you need more context than take_snapshot provides.',
@@ -42,7 +39,7 @@ export const take_enhanced_snapshot = defineObservationTool({
   },
 })
 
-export const get_page_content = defineObservationTool({
+export const get_page_content = defineTool({
   name: 'get_page_content',
   description:
     'Extract page content as clean markdown with headers, links, lists, tables, and formatting preserved. Large results are written to a local file and returned by path. Not for automation — use take_snapshot for that.',
@@ -136,7 +133,7 @@ export const get_page_content = defineObservationTool({
   },
 })
 
-export const take_screenshot = defineCaptureTool({
+export const take_screenshot = defineTool({
   name: 'take_screenshot',
   description: 'Take a screenshot of a page',
   input: z.object({
@@ -175,7 +172,7 @@ export const take_screenshot = defineCaptureTool({
   },
 })
 
-export const get_page_links = defineObservationTool({
+export const get_page_links = defineTool({
   name: 'get_page_links',
   description:
     'Extract all links from the page using the accessibility tree. Returns a deduplicated list of [text](url) entries. More reliable than DOM queries — handles role="link" elements and shadow DOM.',
@@ -206,7 +203,7 @@ export const get_page_links = defineObservationTool({
   },
 })
 
-export const evaluate_script = defineScriptTool({
+export const evaluate_script = defineTool({
   name: 'evaluate_script',
   description:
     'Execute JavaScript in the page context. Returns the result as a string. Use for reading page state or performing actions not covered by other tools.',

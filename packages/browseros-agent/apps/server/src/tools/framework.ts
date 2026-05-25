@@ -1,6 +1,5 @@
 import { tmpdir } from 'node:os'
 import { resolve } from 'node:path'
-import type { ToolApprovalCategoryId } from '@browseros/shared/constants/tool-approval'
 import type { z } from 'zod'
 import type { Browser } from '../browser/browser'
 import { ToolResponse, type ToolResult } from './response'
@@ -8,7 +7,6 @@ import { ToolResponse, type ToolResult } from './response'
 export interface ToolDefinition {
   name: string
   description: string
-  approvalCategory: ToolApprovalCategoryId
   input: z.ZodType
   output?: z.ZodType
   handler: ToolHandler
@@ -50,7 +48,6 @@ export function defineTool<
 >(config: {
   name: string
   description: string
-  approvalCategory: ToolApprovalCategoryId
   input: TInput
   output?: TOutput
   handler: (
@@ -60,29 +57,6 @@ export function defineTool<
   ) => Promise<void>
 }): ToolDefinition {
   return config as ToolDefinition
-}
-
-export function defineToolWithCategory(
-  approvalCategory: ToolApprovalCategoryId,
-) {
-  return <
-    TInput extends z.ZodType,
-    TOutput extends z.ZodType | undefined = undefined,
-  >(config: {
-    name: string
-    description: string
-    input: TInput
-    output?: TOutput
-    handler: (
-      args: z.infer<TInput>,
-      ctx: ToolContext,
-      response: ToolResponse,
-    ) => Promise<void>
-  }): ToolDefinition =>
-    defineTool({
-      approvalCategory,
-      ...config,
-    })
 }
 
 export async function executeTool(

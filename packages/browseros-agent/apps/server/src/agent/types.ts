@@ -3,7 +3,6 @@
  * Copyright 2025 BrowserOS
  * SPDX-License-Identifier: AGPL-3.0-or-later
  */
-import type { ToolApprovalConfig } from '@browseros/shared/constants/tool-approval'
 import type { LLMProvider } from '@browseros/shared/schemas/llm'
 
 export interface ProviderConfig {
@@ -51,6 +50,4 @@ export interface ResolvedAgentConfig {
   origin?: 'sidepanel' | 'newtab'
   /** BrowserOS installation ID for credit-based tracking. */
   browserosId?: string
-  /** Tool approval configuration — which categories require human approval. */
-  toolApprovalConfig?: ToolApprovalConfig
 }

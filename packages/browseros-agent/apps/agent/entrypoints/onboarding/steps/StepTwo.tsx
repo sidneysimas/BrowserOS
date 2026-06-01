@@ -1,10 +1,7 @@
-import { AlertCircle, CheckCircle2, Loader2, Mail } from 'lucide-react'
+import { AlertCircle, Loader2 } from 'lucide-react'
 import { useState } from 'react'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
-import { Separator } from '@/components/ui/separator'
 import { signIn } from '@/lib/auth/auth-client'
 import {
   ONBOARDING_SIGNIN_COMPLETED_EVENT,
@@ -20,10 +17,9 @@ interface StepTwoProps {
   onContinue: () => void
 }
 
-type SignInState = 'idle' | 'loading' | 'magic-link-sent' | 'error'
+type SignInState = 'idle' | 'loading' | 'error'
 
 export const StepTwo = ({ direction, onContinue }: StepTwoProps) => {
-  const [email, setEmail] = useState('')
   const [state, setState] = useState<SignInState>('idle')
   const [error, setError] = useState<string | null>(null)
 
@@ -35,34 +31,6 @@ export const StepTwo = ({ direction, onContinue }: StepTwoProps) => {
       skipped: true,
     })
     onContinue()
-  }
-
-  const handleMagicLink = async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!email.trim()) return
-
-    setState('loading')
-    setError(null)
-
-    try {
-      const result = await signIn.magicLink({
-        email: email.trim(),
-        callbackURL: '/home',
-      })
-
-      if (result.error) {
-        setState('error')
-        setError(result.error.message || 'Failed to send magic link')
-        return
-      }
-
-      setState('magic-link-sent')
-      track(ONBOARDING_SIGNIN_COMPLETED_EVENT, { method: 'magic_link' })
-      track(ONBOARDING_STEP_COMPLETED_EVENT, { step: 3, step_name: 'signin' })
-    } catch (err) {
-      setState('error')
-      setError(err instanceof Error ? err.message : 'Failed to send magic link')
-    }
   }
 
   const handleGoogleSignIn = async () => {
@@ -84,47 +52,6 @@ export const StepTwo = ({ direction, onContinue }: StepTwoProps) => {
         err instanceof Error ? err.message : 'Failed to sign in with Google',
       )
     }
-  }
-
-  if (state === 'magic-link-sent') {
-    return (
-      <StepTransition direction={direction}>
-        <div className="flex h-full flex-col items-center justify-center">
-          <div className="w-full max-w-md space-y-6 text-center">
-            <div className="mx-auto flex size-12 items-center justify-center rounded-full bg-green-100 dark:bg-green-900/30">
-              <CheckCircle2 className="size-6 text-green-600 dark:text-green-400" />
-            </div>
-            <div className="space-y-2">
-              <h2 className="font-bold text-2xl tracking-tight">
-                Check your email
-              </h2>
-              <p className="text-muted-foreground text-sm">
-                We sent a magic link to <strong>{email}</strong>. Click the link
-                to sign in.
-              </p>
-            </div>
-            <div className="flex flex-col gap-3">
-              <Button
-                variant="outline"
-                onClick={() => {
-                  setState('idle')
-                  setEmail('')
-                }}
-              >
-                Use a different email
-              </Button>
-              <Button
-                variant="ghost"
-                onClick={onContinue}
-                className="text-muted-foreground"
-              >
-                Continue without signing in
-              </Button>
-            </div>
-          </div>
-        </div>
-      </StepTransition>
-    )
   }
 
   return (
@@ -160,44 +87,6 @@ export const StepTwo = ({ direction, onContinue }: StepTwoProps) => {
             )}
             Continue with Google
           </Button>
-
-          <div className="relative">
-            <div className="absolute inset-0 flex items-center">
-              <Separator className="w-full" />
-            </div>
-            <div className="relative flex justify-center text-xs uppercase">
-              <span className="bg-background px-2 text-muted-foreground">
-                Or continue with email
-              </span>
-            </div>
-          </div>
-
-          <form onSubmit={handleMagicLink} className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="signin-email">Email</Label>
-              <Input
-                id="signin-email"
-                type="email"
-                placeholder="you@example.com"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                disabled={state === 'loading'}
-                required
-              />
-            </div>
-            <Button
-              type="submit"
-              className="w-full bg-[var(--accent-orange)] text-white hover:bg-[var(--accent-orange)]/90"
-              disabled={state === 'loading' || !email.trim()}
-            >
-              {state === 'loading' ? (
-                <Loader2 className="size-4 animate-spin" />
-              ) : (
-                <Mail className="size-4" />
-              )}
-              Send Magic Link
-            </Button>
-          </form>
 
           <div className="text-center">
             <Button

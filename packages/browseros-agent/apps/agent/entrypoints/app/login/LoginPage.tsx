@@ -1,10 +1,4 @@
-import {
-  AlertCircle,
-  ArrowLeft,
-  CheckCircle2,
-  Loader2,
-  Mail,
-} from 'lucide-react'
+import { AlertCircle, ArrowLeft, Loader2 } from 'lucide-react'
 import type { FC } from 'react'
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router'
@@ -17,17 +11,13 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
-import { Separator } from '@/components/ui/separator'
 import { signIn, useSession } from '@/lib/auth/auth-client'
 
-type LoginState = 'idle' | 'loading' | 'magic-link-sent' | 'error'
+type LoginState = 'idle' | 'loading' | 'error'
 
 export const LoginPage: FC = () => {
   const navigate = useNavigate()
   const { data: session, isPending } = useSession()
-  const [email, setEmail] = useState('')
   const [state, setState] = useState<LoginState>('idle')
   const [error, setError] = useState<string | null>(null)
 
@@ -36,32 +26,6 @@ export const LoginPage: FC = () => {
       navigate('/home', { replace: true })
     }
   }, [session, isPending, navigate])
-
-  const handleMagicLink = async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!email.trim()) return
-
-    setState('loading')
-    setError(null)
-
-    try {
-      const result = await signIn.magicLink({
-        email: email.trim(),
-        callbackURL: '/home',
-      })
-
-      if (result.error) {
-        setState('error')
-        setError(result.error.message || 'Failed to send magic link')
-        return
-      }
-
-      setState('magic-link-sent')
-    } catch (err) {
-      setState('error')
-      setError(err instanceof Error ? err.message : 'Failed to send magic link')
-    }
-  }
 
   const handleGoogleSignIn = async () => {
     setState('loading')
@@ -85,38 +49,6 @@ export const LoginPage: FC = () => {
       <div className="flex min-h-screen items-center justify-center">
         <Loader2 className="size-8 animate-spin text-muted-foreground" />
       </div>
-    )
-  }
-
-  if (state === 'magic-link-sent') {
-    return (
-      <Card className="w-full max-w-md">
-        <CardHeader className="text-center">
-          <div className="mx-auto mb-4 flex size-12 items-center justify-center rounded-full bg-green-100 dark:bg-green-900/30">
-            <CheckCircle2 className="size-6 text-green-600 dark:text-green-400" />
-          </div>
-          <CardTitle>Check your email</CardTitle>
-          <CardDescription>
-            We sent a magic link to <strong>{email}</strong>
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <p className="text-center text-muted-foreground text-sm">
-            Click the link in the email to sign in. If you don't see it, check
-            your spam folder.
-          </p>
-          <Button
-            variant="outline"
-            className="w-full"
-            onClick={() => {
-              setState('idle')
-              setEmail('')
-            }}
-          >
-            Use a different email
-          </Button>
-        </CardContent>
-      </Card>
     )
   }
 
@@ -147,44 +79,6 @@ export const LoginPage: FC = () => {
             <AlertDescription>{error}</AlertDescription>
           </Alert>
         )}
-
-        <form onSubmit={handleMagicLink} className="space-y-4">
-          <div className="space-y-2">
-            <Label htmlFor="email">Email</Label>
-            <Input
-              id="email"
-              type="email"
-              placeholder="you@example.com"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              disabled={state === 'loading'}
-              required
-            />
-          </div>
-          <Button
-            type="submit"
-            className="w-full"
-            disabled={state === 'loading' || !email.trim()}
-          >
-            {state === 'loading' ? (
-              <Loader2 className="size-4 animate-spin" />
-            ) : (
-              <Mail className="size-4" />
-            )}
-            Send Magic Link
-          </Button>
-        </form>
-
-        <div className="relative">
-          <div className="absolute inset-0 flex items-center">
-            <Separator className="w-full" />
-          </div>
-          <div className="relative flex justify-center text-xs uppercase">
-            <span className="bg-card px-2 text-muted-foreground">
-              Or continue with
-            </span>
-          </div>
-        </div>
 
         <Button
           variant="outline"

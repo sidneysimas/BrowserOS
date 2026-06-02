@@ -4,6 +4,8 @@ import {
   useAgentAdapters,
   useHarnessAgents,
 } from '@/entrypoints/app/agents/useAgents'
+import { Feature } from '@/lib/browseros/capabilities'
+import { useCapabilities } from '@/lib/browseros/useCapabilities'
 import type { LlmProviderConfig } from '@/lib/llm-providers/types'
 import { useLlmProviders } from '@/lib/llm-providers/useLlmProviders'
 import { type McpServer, useMcpServers } from '@/lib/mcp/mcpServerStorage'
@@ -42,6 +44,8 @@ export const useChatRefs = () => {
   } = useLlmProviders()
   const { adapters, loading: isLoadingAdapters } = useAgentAdapters()
   const { harnessAgents, loading: isLoadingAgents } = useHarnessAgents()
+  const { supports } = useCapabilities()
+  const hermesAgentSupported = supports(Feature.HERMES_AGENT_SUPPORT)
   const { personalization } = usePersonalization()
   const [targetSelection, setTargetSelection] =
     useState<SidepanelChatTargetSelection | null>(null)
@@ -62,8 +66,9 @@ export const useChatRefs = () => {
         providers: llmProviders,
         adapters,
         agents: harnessAgents,
+        hermesAgentSupported,
       }),
-    [llmProviders, adapters, harnessAgents],
+    [llmProviders, adapters, harnessAgents, hermesAgentSupported],
   )
 
   const selectedChatTarget = useMemo(

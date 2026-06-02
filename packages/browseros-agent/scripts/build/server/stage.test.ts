@@ -184,6 +184,23 @@ describe('server artifact staging', () => {
       ).toBe(`${target.id}-bun`)
     })
   }
+
+  it('does not package VM-only resources in the production manifest', () => {
+    const manifest = loadManifest(
+      'scripts/build/config/server-prod-resources.json',
+    )
+    const destinations = manifest.resources.map((rule) => rule.destination)
+
+    expect(
+      destinations.filter(
+        (destination) =>
+          destination.includes('third_party/lima') ||
+          destination.startsWith('resources/vm/'),
+      ),
+    ).toEqual([])
+    expect(destinations).toContain('resources/bin/third_party/bun')
+    expect(destinations).toContain('resources/db/migrations')
+  })
 })
 
 const testTarget: BuildTarget = {

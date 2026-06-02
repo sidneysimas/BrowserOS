@@ -63,3 +63,14 @@ describe('checkFeatureSupport — AGENT_HARNESS_SUPPORT', () => {
     expect(at([0, 47, 0, 0])).toBe(true)
   })
 })
+
+describe('checkFeatureSupport — HERMES_AGENT_SUPPORT', () => {
+  it('has no version dependency once the static alpha gate allows it', () => {
+    expect(
+      checkFeatureSupport(
+        { browserOSVersion: null, serverVersion: null },
+        Feature.HERMES_AGENT_SUPPORT,
+      ),
+    ).toBe(true)
+  })
+})

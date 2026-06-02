@@ -71,6 +71,11 @@ describe('createAgentRoutes', () => {
         }),
       }),
     )
+    expect(
+      body.adapters.map(
+        (adapter: { id: AgentDefinition['adapter'] }) => adapter.id,
+      ),
+    ).toContain('hermes')
   })
 
   it('creates and lists harness agents', async () => {

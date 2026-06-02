@@ -20,7 +20,9 @@ import {
   resolveSidepanelChatTarget,
 } from '@/entrypoints/sidepanel/index/sidepanel-chat-targets'
 import { toProviderOption } from '@/entrypoints/sidepanel/index/useChatSessionRequest'
-import { isAdapterHidden } from '@/lib/chat/adapter-visibility'
+import { Feature } from '@/lib/browseros/capabilities'
+import { useCapabilities } from '@/lib/browseros/useCapabilities'
+import { visibleHarnessAgents } from '@/lib/chat/adapter-visibility'
 import { useLlmProviders } from '@/lib/llm-providers/useLlmProviders'
 import { AgentCardDock } from './AgentCardDock'
 import {
@@ -85,6 +87,8 @@ export const AgentCommandHome: FC = () => {
   } = useLlmProviders()
   const { harnessAgents } = useHarnessAgents()
   const { adapters } = useAgentAdapters()
+  const { supports } = useCapabilities()
+  const hermesAgentSupported = supports(Feature.HERMES_AGENT_SUPPORT)
   const [selectedProvider, setSelectedProvider] = useState<Provider | null>(
     null,
   )
@@ -95,8 +99,9 @@ export const AgentCommandHome: FC = () => {
         providers: llmProviders,
         adapters,
         agents: harnessAgents,
+        hermesAgentSupported,
       }),
-    [llmProviders, adapters, harnessAgents],
+    [llmProviders, adapters, harnessAgents, hermesAgentSupported],
   )
   const providerOptions = useMemo(
     () => targets.map(toProviderOption),
@@ -129,11 +134,12 @@ export const AgentCommandHome: FC = () => {
   // has agents under (the most recent visible one), not a hardcoded adapter —
   // otherwise a Codex-only user would land on an empty Claude pane.
   const manageAgentsPath = useMemo(() => {
-    const adapter = orderedAgents.find(
-      (agent) => !isAdapterHidden(agent.adapter),
-    )?.adapter
+    const adapter = visibleHarnessAgents(
+      orderedAgents,
+      hermesAgentSupported,
+    ).at(0)?.adapter
     return adapter ? `/settings/ai?section=${adapter}` : '/settings/ai'
-  }, [orderedAgents])
+  }, [orderedAgents, hermesAgentSupported])
 
   const handleSend = async (input: ConversationInputSendInput) => {
     if (!selectedProvider) return

@@ -49,29 +49,44 @@ function makeProvider(id: string): LlmProviderConfig {
 }
 
 describe('isAdapterHidden', () => {
-  it('hides hermes', () => {
-    expect(isAdapterHidden('hermes')).toBe(true)
+  it('hides hermes when the alpha capability is disabled', () => {
+    expect(isAdapterHidden('hermes', false)).toBe(true)
   })
 
-  it('shows claude and codex', () => {
-    expect(isAdapterHidden('claude')).toBe(false)
-    expect(isAdapterHidden('codex')).toBe(false)
+  it('shows hermes when the alpha capability is enabled', () => {
+    expect(isAdapterHidden('hermes', true)).toBe(false)
+  })
+
+  it('shows claude and codex regardless of the Hermes capability', () => {
+    expect(isAdapterHidden('claude', false)).toBe(false)
+    expect(isAdapterHidden('codex', false)).toBe(false)
   })
 })
 
 describe('visibleAdapters', () => {
-  it('drops hermes descriptors and preserves the order of the rest', () => {
-    const result = visibleAdapters([
-      makeAdapter('claude'),
-      makeAdapter('hermes'),
-      makeAdapter('codex'),
-    ])
+  const adapters = [
+    makeAdapter('claude'),
+    makeAdapter('hermes'),
+    makeAdapter('codex'),
+  ]
+
+  it('drops hermes descriptors when the alpha capability is disabled', () => {
+    const result = visibleAdapters(adapters, false)
     expect(result.map((adapter) => adapter.id)).toEqual(['claude', 'codex'])
+  })
+
+  it('keeps hermes descriptors when the alpha capability is enabled', () => {
+    const result = visibleAdapters(adapters, true)
+    expect(result.map((adapter) => adapter.id)).toEqual([
+      'claude',
+      'hermes',
+      'codex',
+    ])
   })
 })
 
 describe('buildSidepanelChatTargets adapter visibility', () => {
-  it('omits acp targets for hermes-backed agents but keeps claude/codex', () => {
+  it('omits acp targets for hermes-backed agents when alpha is disabled', () => {
     const targets = buildSidepanelChatTargets({
       providers: [],
       adapters: [
@@ -84,12 +99,35 @@ describe('buildSidepanelChatTargets adapter visibility', () => {
         makeAgent('b', 'hermes'),
         makeAgent('c', 'codex'),
       ],
+      hermesAgentSupported: false,
     })
     expect(
       targets
         .filter((target) => target.kind === 'acp')
         .map((target) => target.id),
     ).toEqual(['a', 'c'])
+  })
+
+  it('keeps acp targets for hermes-backed agents when alpha is enabled', () => {
+    const targets = buildSidepanelChatTargets({
+      providers: [],
+      adapters: [
+        makeAdapter('claude'),
+        makeAdapter('codex'),
+        makeAdapter('hermes'),
+      ],
+      agents: [
+        makeAgent('a', 'claude'),
+        makeAgent('b', 'hermes'),
+        makeAgent('c', 'codex'),
+      ],
+      hermesAgentSupported: true,
+    })
+    expect(
+      targets
+        .filter((target) => target.kind === 'acp')
+        .map((target) => target.id),
+    ).toEqual(['a', 'b', 'c'])
   })
 
   it('keeps one llm target per provider', () => {

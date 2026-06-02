@@ -106,6 +106,7 @@ export async function createHttpServer(config: HttpServerConfig) {
         resourcesDir,
         browser,
         ensureVmRuntimeReady: async (adapter) => {
+          if (process.env.NODE_ENV === 'production') return
           switch (adapter) {
             case 'hermes':
               await ensureHermesRuntimeReady({ resourcesDir })

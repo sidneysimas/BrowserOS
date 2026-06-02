@@ -2,6 +2,8 @@ import type { FC, ReactNode } from 'react'
 import { useSearchParams } from 'react-router'
 import { AdapterIcon, adapterLabel } from '@/entrypoints/app/agents/AdapterIcon'
 import { useAgentAdapters } from '@/entrypoints/app/agents/useAgents'
+import { Feature } from '@/lib/browseros/capabilities'
+import { useCapabilities } from '@/lib/browseros/useCapabilities'
 import { visibleAdapters } from '@/lib/chat/adapter-visibility'
 import { BrowserOSIcon } from '@/lib/llm-providers/providerIcons'
 import { cn } from '@/lib/utils'
@@ -26,9 +28,11 @@ interface SectionItem {
  */
 export const AISettingsPage: FC = () => {
   const [searchParams, setSearchParams] = useSearchParams()
+  const { supports } = useCapabilities()
   const { adapters } = useAgentAdapters()
+  const hermesAgentSupported = supports(Feature.HERMES_AGENT_SUPPORT)
 
-  const shownAdapters = visibleAdapters(adapters)
+  const shownAdapters = visibleAdapters(adapters, hermesAgentSupported)
   const activeSection = resolveAiSettingsSection(
     searchParams.get('section'),
     shownAdapters.map((adapter) => adapter.id),

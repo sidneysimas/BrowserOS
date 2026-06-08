@@ -11,11 +11,11 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import { GetProfileByUserIdDocument } from '@/entrypoints/app/profile/graphql/profileDocument'
 import { useSessionInfo } from '@/lib/auth/sessionStorage'
-import { useGraphqlQuery } from '@/lib/graphql/useGraphqlQuery'
 import { cn } from '@/lib/utils'
-import { useWorkspace } from '@/lib/workspace/use-workspace'
+import { useGraphqlQuery } from '@/modules/graphql/graphql-query.hooks'
+import { useWorkspace } from '@/modules/workspace/workspace.hooks'
+import { GetProfileByUserIdDocument } from '@/screens/profile/graphql/profileDocument'
 
 interface SidebarBrandingProps {
   expanded?: boolean

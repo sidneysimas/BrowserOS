@@ -13,8 +13,8 @@ import type { FC } from 'react'
 import { NavLink } from 'react-router'
 import { ThemeToggle } from '@/components/elements/theme-toggle'
 import { Feature } from '@/lib/browseros/capabilities'
-import { useCapabilities } from '@/lib/browseros/useCapabilities'
 import { cn } from '@/lib/utils'
+import { useCapabilities } from '@/modules/browseros/capabilities.hooks'
 
 type BaseNavItem = {
   name: string

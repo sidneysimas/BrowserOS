@@ -16,8 +16,8 @@ import {
 } from '@/components/ui/popover'
 import { getBrowserOSAdapter } from '@/lib/browseros/adapter'
 import { cn } from '@/lib/utils'
-import { useWorkspace } from '@/lib/workspace/use-workspace'
 import type { WorkspaceFolder } from '@/lib/workspace/workspace-storage'
+import { useWorkspace } from '@/modules/workspace/workspace.hooks'
 
 interface WorkspaceSelectorProps {
   side?: 'top' | 'bottom' | 'left' | 'right'

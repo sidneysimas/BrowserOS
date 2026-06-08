@@ -15,8 +15,8 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from '@/components/ui/popover'
+import { useAvailableTabs } from './available-tabs.hooks'
 import { TabListItem } from './tab-list-item'
-import { useAvailableTabs } from './use-available-tabs'
 
 type PopoverSide = 'top' | 'bottom' | 'left' | 'right'
 

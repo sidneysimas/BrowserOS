@@ -1,5 +1,4 @@
 import { createParser, type EventSourceMessage } from 'eventsource-parser'
-import type { ChatMode } from '@/entrypoints/sidepanel/index/chatTypes'
 import { getAgentServerUrl } from '@/lib/browseros/helpers'
 import {
   createDefaultBrowserOSProvider,
@@ -9,6 +8,7 @@ import {
 import type { LlmProviderConfig } from '@/lib/llm-providers/types'
 import { mcpServerStorage } from '@/lib/mcp/mcpServerStorage'
 import { buildChatRequestBody } from '@/lib/messaging/server/buildChatRequestBody'
+import type { ChatMode } from '@/modules/chat/chat-types'
 import {
   findChatProviderById,
   resolveChatProvider,

@@ -2,6 +2,8 @@ import { KeyRound, Plus, Settings } from 'lucide-react'
 import type { FC, ReactNode } from 'react'
 import { useState } from 'react'
 import { toast } from 'sonner'
+import { ApiKeyDialog } from '@/components/mcp/ApiKeyDialog'
+import { McpServerIcon } from '@/components/mcp/McpServerIcon'
 import {
   Command,
   CommandEmpty,
@@ -15,17 +17,15 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from '@/components/ui/popover'
-import { ApiKeyDialog } from '@/entrypoints/app/connect-mcp/ApiKeyDialog'
-import { McpServerIcon } from '@/entrypoints/app/connect-mcp/McpServerIcon'
-import { useAddManagedServer } from '@/entrypoints/app/connect-mcp/useAddManagedServer'
-import { useGetMCPServersList } from '@/entrypoints/app/connect-mcp/useGetMCPServersList'
-import { useGetUserMCPIntegrations } from '@/entrypoints/app/connect-mcp/useGetUserMCPIntegrations'
-import { useSubmitApiKey } from '@/entrypoints/app/connect-mcp/useSubmitApiKey'
 import { MANAGED_MCP_ADDED_EVENT } from '@/lib/constants/analyticsEvents'
 import { useMcpServers } from '@/lib/mcp/mcpServerStorage'
-import { useSyncRemoteIntegrations } from '@/lib/mcp/useSyncRemoteIntegrations'
 import { track } from '@/lib/metrics/track'
 import { sentry } from '@/lib/sentry/sentry'
+import { useAddManagedServer } from '@/modules/mcp/add-managed-server.hooks'
+import { useGetMCPServersList } from '@/modules/mcp/managed-mcp-servers.hooks'
+import { useSubmitApiKey } from '@/modules/mcp/submit-api-key.hooks'
+import { useSyncRemoteIntegrations } from '@/modules/mcp/sync-remote-integrations.hooks'
+import { useGetUserMCPIntegrations } from '@/modules/mcp/user-integrations.hooks'
 
 interface AppSelectorProps {
   children: ReactNode

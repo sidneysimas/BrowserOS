@@ -1,8 +1,8 @@
 import type { FC } from 'react'
 import { HashRouter, Route, Routes } from 'react-router'
-import { ChatHistory } from './history/ChatHistory'
-import { Chat } from './index/Chat'
-import { ChatLayout } from './layout/ChatLayout'
+import { ChatLayout } from '@/components/layout/ChatLayout'
+import { ChatHistory } from '@/screens/sidepanel/history/ChatHistory'
+import { Chat } from '@/screens/sidepanel/index/Chat'
 
 export const App: FC = () => {
   return (

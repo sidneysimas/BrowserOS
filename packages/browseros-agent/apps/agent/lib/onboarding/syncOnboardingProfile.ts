@@ -1,5 +1,5 @@
-import { UpdateProfileByUserIdDocument } from '@/entrypoints/app/profile/graphql/profileDocument'
 import { execute } from '@/lib/graphql/execute'
+import { UpdateProfileByUserIdDocument } from '@/screens/profile/graphql/profileDocument'
 import { onboardingProfileStorage } from './onboardingStorage'
 
 function splitName(name: string): { firstName: string; lastName: string } {

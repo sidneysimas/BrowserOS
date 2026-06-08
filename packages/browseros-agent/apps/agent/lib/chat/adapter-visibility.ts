@@ -1,7 +1,7 @@
 import type {
   HarnessAdapterDescriptor,
   HarnessAgentAdapter,
-} from '@/entrypoints/app/agents/agent-harness-types'
+} from '@/modules/agents/agent-harness-types'
 
 /**
  * UI visibility gate for VM-backed adapters. Hermes stays in backend

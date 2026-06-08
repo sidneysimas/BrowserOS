@@ -41,6 +41,7 @@
     "test:main": "bun run ./scripts/run-test-suite.ts main",
     "typecheck": "bun run --filter '*' typecheck",
     "lint": "bunx biome check",
+    "fallow": "fallow check",
     "lint:fix": "bunx biome check --write --unsafe",
     "gen:cdp": "bun scripts/codegen/cdp-protocol.ts",
     "generate:models": "bun scripts/generate-models.ts"
@@ -61,6 +62,7 @@
     "@typescript/native-preview": "^7.0.0-dev.20260319.1",
     "commander": "^14.0.1",
     "dotenv": "^17.2.3",
+    "fallow": "^2.85.0",
     "globals": "^16.4.0",
     "lefthook": "^2.0.12",
     "picocolors": "^1.1.1",

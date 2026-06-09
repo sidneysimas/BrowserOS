@@ -6,10 +6,18 @@ export interface SnapshotDiff {
   added: number
   removed: number
   changed: boolean
+  urlChanged?: true
+  beforeUrl?: string
+  afterUrl?: string
 }
 
 export interface DiffOptions {
   contextRadius?: number
+}
+
+export interface SnapshotObservation {
+  text: string
+  url?: string
 }
 
 interface TaggedLine {
@@ -48,6 +56,35 @@ export function diffSnapshots(
     removed,
     changed: true,
   }
+}
+
+/** Compares successive page observations, returning the full snapshot when navigation changed the URL. */
+export function diffSnapshotObservations(
+  before: SnapshotObservation | undefined,
+  after: SnapshotObservation,
+  opts: DiffOptions = {},
+): SnapshotDiff {
+  const beforeUrl = before?.url
+  const afterUrl = after.url
+  if (isKnownUrl(beforeUrl) && isKnownUrl(afterUrl) && beforeUrl !== afterUrl) {
+    return {
+      text: after.text,
+      added: 0,
+      removed: 0,
+      changed: true,
+      urlChanged: true,
+      beforeUrl,
+      afterUrl,
+    }
+  }
+
+  const diff = diffSnapshots(before?.text ?? '', after.text, opts)
+  if (isKnownUrl(afterUrl)) return { ...diff, afterUrl }
+  return diff
+}
+
+function isKnownUrl(url: string | undefined): url is string {
+  return url !== undefined && url !== '' && url !== 'unknown'
 }
 
 function splitLines(value: string): string[] {

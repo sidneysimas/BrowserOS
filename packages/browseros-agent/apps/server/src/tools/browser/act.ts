@@ -64,14 +64,25 @@ export const act = defineTool({
     if (err) return err
 
     const diff = await ctx.session.observe(args.page).diff()
-    const origin = ctx.session.pages.getInfo(args.page)?.url ?? 'unknown'
-    const body = diff.changed
-      ? `page changed:\n${wrapUntrusted(diff.text, origin)}`
-      : 'no visible change'
-    return textResult(`ok (${args.kind}) · ${body}`, {
+    const origin =
+      diff.afterUrl ?? ctx.session.pages.getInfo(args.page)?.url ?? 'unknown'
+    const body = diff.urlChanged
+      ? `page URL changed; returning full current snapshot instead of a diff:\n${wrapUntrusted(diff.text || '(empty page)', origin)}`
+      : diff.changed
+        ? `page changed:\n${wrapUntrusted(diff.text, origin)}`
+        : 'no visible change'
+    const structured: Record<string, unknown> = {
       kind: args.kind,
       changed: diff.changed,
-    })
+    }
+    if (diff.urlChanged) {
+      Object.assign(structured, {
+        urlChanged: true,
+        beforeUrl: diff.beforeUrl,
+        afterUrl: diff.afterUrl,
+      })
+    }
+    return textResult(`ok (${args.kind}) · ${body}`, structured)
   },
 })
 

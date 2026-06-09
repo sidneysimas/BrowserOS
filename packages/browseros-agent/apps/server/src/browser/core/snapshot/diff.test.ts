@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { diffSnapshots } from './diff'
+import { diffSnapshotObservations, diffSnapshots } from './diff'
 
 describe('diffSnapshots', () => {
   test('identical snapshots short-circuit to no change', () => {
@@ -48,7 +48,60 @@ describe('diffSnapshots', () => {
     expect(d.text).toContain('- item 0')
     expect(d.text).toContain('+ item ZERO')
     expect(d.text).toContain('+ item LAST')
-    // The unchanged middle (e.g. item 15) is elided.
     expect(d.text).not.toContain('item 15')
+  })
+
+  test('url changes return the full current snapshot instead of a line diff', () => {
+    const before = {
+      text: '- main\n  - button "Old page" [ref=e1]',
+      url: 'https://example.com/old',
+    }
+    const after = {
+      text: '- main\n  - heading "New page"',
+      url: 'https://example.com/new',
+    }
+
+    const d = diffSnapshotObservations(before, after)
+
+    expect(d).toMatchObject({
+      text: after.text,
+      added: 0,
+      removed: 0,
+      changed: true,
+      urlChanged: true,
+      beforeUrl: before.url,
+      afterUrl: after.url,
+    })
+  })
+
+  test('unknown urls keep existing line-diff behavior', () => {
+    const d = diffSnapshotObservations(
+      { text: '- main\n  - button "Old"', url: 'unknown' },
+      { text: '- main\n  - button "New"', url: 'https://example.com/new' },
+    )
+
+    expect(d.changed).toBe(true)
+    expect(d.urlChanged).toBeUndefined()
+    expect(d.added).toBe(1)
+    expect(d.removed).toBe(1)
+    expect(d.text).toContain('-   button "Old"')
+    expect(d.text).toContain('+   button "New"')
+  })
+
+  test('same-url diffs preserve the current url for callers', () => {
+    const d = diffSnapshotObservations(
+      {
+        text: '- main\n  - button "Save" [ref=e1]',
+        url: 'https://example.com/form',
+      },
+      {
+        text: '- main\n  - button "Saved" [ref=e1]',
+        url: 'https://example.com/form',
+      },
+    )
+
+    expect(d.changed).toBe(true)
+    expect(d.urlChanged).toBeUndefined()
+    expect(d.afterUrl).toBe('https://example.com/form')
   })
 })

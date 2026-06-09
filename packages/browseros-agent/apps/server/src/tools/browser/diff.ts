@@ -11,7 +11,20 @@ export const diff = defineTool({
   handler: async (args, ctx) => {
     const d = await ctx.session.observe(args.page).diff()
     if (!d.changed) return textResult('no change since last snapshot')
-    const origin = ctx.session.pages.getInfo(args.page)?.url ?? 'unknown'
+    const origin =
+      d.afterUrl ?? ctx.session.pages.getInfo(args.page)?.url ?? 'unknown'
+    if (d.urlChanged) {
+      return textResult(
+        `URL changed; returning full current snapshot instead of a diff:\n${wrapUntrusted(d.text || '(empty page)', origin)}`,
+        {
+          added: d.added,
+          removed: d.removed,
+          urlChanged: true,
+          beforeUrl: d.beforeUrl,
+          afterUrl: d.afterUrl,
+        },
+      )
+    }
     return textResult(wrapUntrusted(d.text, origin), {
       added: d.added,
       removed: d.removed,

@@ -2,9 +2,12 @@
 """Git operations module for BrowserOS build system"""
 
 import re
+import shutil
 import subprocess
 import tarfile
 import urllib.request
+import zipfile
+from pathlib import Path
 from typing import List
 
 from ...common.module import CommandModule, ValidationError
@@ -156,3 +159,70 @@ class SparkleSetupModule(CommandModule):
         sparkle_archive.unlink()
 
         log_success("Sparkle setup complete")
+
+
+class WinSparkleSetupModule(CommandModule):
+    produces = []
+    requires = []
+    description = "Download and setup WinSparkle library (Windows only)"
+
+    def validate(self, ctx: Context) -> None:
+        if not IS_WINDOWS():
+            raise ValidationError("WinSparkle setup requires Windows")
+
+    def execute(self, ctx: Context) -> None:
+        log_info("\n✨ Setting up WinSparkle library...")
+
+        winsparkle_dir = ctx.get_winsparkle_dir()
+
+        if winsparkle_dir.exists():
+            safe_rmtree(winsparkle_dir)
+
+        winsparkle_dir.mkdir(parents=True)
+
+        winsparkle_url = ctx.get_winsparkle_url()
+        winsparkle_archive = winsparkle_dir / "winsparkle.zip"
+
+        log_info(f"Downloading WinSparkle from {winsparkle_url}...")
+        urllib.request.urlretrieve(winsparkle_url, winsparkle_archive)
+
+        log_info("Extracting WinSparkle...")
+        extract_winsparkle_zip(winsparkle_archive, winsparkle_dir)
+
+        winsparkle_archive.unlink()
+
+        log_success("WinSparkle setup complete")
+
+
+def extract_winsparkle_zip(archive: Path, dest: Path) -> None:
+    """Extract the release zip stripping its top-level WinSparkle-<version>/
+    directory, so //third_party/winsparkle paths stay version-independent
+    (include/, x64/Release/, ...) and match the vendored BUILD.gn.
+    """
+    with zipfile.ZipFile(archive) as zf:
+        infos = zf.infolist()
+
+        # The official archive wraps everything in a single version dir; a
+        # different layout would silently produce a broken tree, so fail fast.
+        top_levels = {Path(info.filename).parts[0] for info in infos if info.filename.strip("/")}
+        if len(top_levels) != 1:
+            raise RuntimeError(
+                f"Expected a single top-level directory in {archive.name}, "
+                f"got: {sorted(top_levels)}"
+            )
+
+        resolved_dest = dest.resolve()
+        for info in infos:
+            parts = Path(info.filename).parts
+            if len(parts) <= 1:
+                continue
+            target = dest.joinpath(*parts[1:])
+            # Guards against zip-slip (.., absolute or drive-relative paths).
+            if not target.resolve().is_relative_to(resolved_dest):
+                raise RuntimeError(f"Unsafe path in archive: {info.filename}")
+            if info.is_dir():
+                target.mkdir(parents=True, exist_ok=True)
+                continue
+            target.parent.mkdir(parents=True, exist_ok=True)
+            with zf.open(info) as src, open(target, "wb") as out:
+                shutil.copyfileobj(src, out)

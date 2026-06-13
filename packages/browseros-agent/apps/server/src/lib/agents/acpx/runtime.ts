@@ -32,7 +32,10 @@ import {
   resolveBundledNativeBinary,
   withBundledNativeBinaryPath,
 } from '../host-acp/bundled-native-binary'
-import { HOST_ACP_ADAPTER_CONFIG } from '../host-acp/config'
+import {
+  DANGEROUS_ALLOW_MODE_CANDIDATES,
+  HOST_ACP_ADAPTER_CONFIG,
+} from '../host-acp/config'
 import type {
   AgentHistoryPage,
   AgentPromptInput,
@@ -899,53 +902,66 @@ async function applyRuntimeControls(
   return events
 }
 
+/**
+ * Lifts approve-all sessions into the adapter's full-permission mode via
+ * ACP `session/set_mode` — otherwise the adapter inherits the user's own
+ * CLI permission defaults. Candidates are tried in order because the two
+ * codex-acp packages advertise different ids for the same full-access
+ * preset.
+ */
 async function applyPermissionBypass(
   runtime: AcpxCoreRuntime,
   handle: AcpRuntimeHandle,
   input: AgentPromptInput,
 ): Promise<AgentStreamEvent[]> {
-  if (
-    input.permissionMode !== 'approve-all' ||
-    input.agent.adapter !== 'claude'
-  ) {
-    return []
-  }
+  if (input.permissionMode !== 'approve-all') return []
+  const candidates = DANGEROUS_ALLOW_MODE_CANDIDATES[input.agent.adapter]
+  if (!candidates?.length) return []
+
+  const requested = `${HOST_ACP_ADAPTER_CONFIG[input.agent.adapter].displayName} ${candidates.join(' / ')}`
 
   if (!runtime.setMode) {
     return [
       {
         type: 'status',
-        text: 'Requested Claude bypassPermissions mode, but this acpx/runtime version does not expose mode control.',
+        text: `Requested ${requested} mode, but this acpx/runtime version does not expose mode control.`,
       },
     ]
   }
 
-  try {
-    await runtime.setMode({ handle, mode: 'bypassPermissions' })
-    logger.debug('Agent harness acpx mode applied', {
-      agentId: input.agent.id,
-      adapter: input.agent.adapter,
-      sessionKey: input.sessionKey,
-      mode: 'bypassPermissions',
-    })
-  } catch (err) {
-    logger.warn('Agent harness acpx mode unavailable', {
-      agentId: input.agent.id,
-      adapter: input.agent.adapter,
-      sessionKey: input.sessionKey,
-      mode: 'bypassPermissions',
-      error: err instanceof Error ? err.message : String(err),
-    })
-    return [
-      {
-        type: 'status',
-        text: `Could not apply Claude bypassPermissions mode; continuing with the adapter default. ${
-          err instanceof Error ? err.message : String(err)
-        }`,
-      },
-    ]
+  let lastError: unknown
+  for (const mode of candidates) {
+    try {
+      await runtime.setMode({ handle, mode })
+      logger.debug('Agent harness acpx mode applied', {
+        agentId: input.agent.id,
+        adapter: input.agent.adapter,
+        sessionKey: input.sessionKey,
+        mode,
+      })
+      return []
+    } catch (err) {
+      lastError = err
+      // debug, not warn: the harness always spawns @zed-industries/codex-acp
+      // (mode id `full-access`), so codex's first candidate is expected to
+      // be rejected on the happy path. Only the all-rejected case below warns.
+      logger.debug('Agent harness acpx mode candidate rejected', {
+        agentId: input.agent.id,
+        adapter: input.agent.adapter,
+        sessionKey: input.sessionKey,
+        mode,
+        error: err instanceof Error ? err.message : String(err),
+      })
+    }
   }
-  return []
+  return [
+    {
+      type: 'status',
+      text: `Could not apply ${requested} mode; continuing with the adapter default. ${
+        lastError instanceof Error ? lastError.message : String(lastError)
+      }`,
+    },
+  ]
 }
 
 function mapRuntimeEvent(event: AcpRuntimeEvent): AgentStreamEvent {

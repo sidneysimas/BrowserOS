@@ -1,8 +1,8 @@
 import { describe, it } from 'bun:test'
 import assert from 'node:assert'
-import { existsSync, readFileSync, rmSync, unlinkSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { dirname, join } from 'node:path'
+import { existsSync, readFileSync, realpathSync, unlinkSync } from 'node:fs'
+import { dirname, isAbsolute, relative } from 'node:path'
+import { getToolOutputDir } from '../../src/lib/browseros-dir'
 import { withBrowser } from '../__helpers__/with-browser'
 import {
   close_page,
@@ -40,9 +40,15 @@ function pageIdOf(result: {
 
 function cleanupSavedContent(path: string): void {
   unlinkSync(path)
-  try {
-    rmSync(dirname(path))
-  } catch {}
+}
+
+async function assertSavedUnderBrowserToolOutput(path: string): Promise<void> {
+  const outputDir = await getToolOutputDir()
+  const rel = relative(realpathSync(outputDir), realpathSync(dirname(path)))
+  assert.ok(
+    rel === '' || (!rel.startsWith('..') && !isAbsolute(rel)),
+    'Saved page content should be written to BrowserOS tool output',
+  )
 }
 
 describe('observation tools', () => {
@@ -207,12 +213,7 @@ describe('observation tools', () => {
         assert.ok(textOf(contentResult).includes('Content truncated'))
         assert.ok(textOf(contentResult).includes(savedPath))
         assert.ok(existsSync(savedPath), 'Saved page content file should exist')
-        assert.ok(
-          dirname(savedPath).startsWith(
-            join(tmpdir(), 'browseros-browser-tool-'),
-          ),
-          'Saved page content should be written to an OS temp directory',
-        )
+        await assertSavedUnderBrowserToolOutput(savedPath)
 
         const savedContent = readFileSync(savedPath, 'utf8')
         assert.strictEqual(savedContent.length, data.contentLength)

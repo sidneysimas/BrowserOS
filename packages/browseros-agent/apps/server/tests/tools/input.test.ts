@@ -90,7 +90,7 @@ const FORM_PAGE = `data:text/html,${encodeURIComponent(`<!DOCTYPE html>
   </script>
 </body></html>`)}`
 
-afterAll(cleanupWithBrowser)
+afterAll(cleanupWithBrowser, 30_000)
 
 describe('input tools', () => {
   it('fill types text into an input', async () => {

@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
-import { mkdir, rm, writeFile } from 'node:fs/promises'
+import { mkdir, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { basename, join } from 'node:path'
+import { getToolOutputDir } from '../../../src/lib/browseros-dir'
 import { createReadTool } from '../../../src/tools/filesystem/read'
 import type { FilesystemToolResult } from '../../../src/tools/filesystem/utils'
 import {
@@ -10,9 +11,17 @@ import {
 } from '../../../src/tools/filesystem/utils'
 
 let tmpDir: string
+let browserosDir: string
+let previousBrowserosDir: string | undefined
 let exec: (params: Record<string, unknown>) => Promise<FilesystemToolResult>
 
 beforeEach(async () => {
+  previousBrowserosDir = process.env.BROWSEROS_DIR
+  browserosDir = join(
+    tmpdir(),
+    `fs-read-browseros-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+  )
+  process.env.BROWSEROS_DIR = browserosDir
   tmpDir = join(
     tmpdir(),
     `fs-read-test-${Date.now()}-${Math.random().toString(36).slice(2)}`,
@@ -25,6 +34,12 @@ beforeEach(async () => {
 
 afterEach(async () => {
   await rm(tmpDir, { recursive: true, force: true })
+  await rm(browserosDir, { recursive: true, force: true })
+  if (previousBrowserosDir === undefined) {
+    delete process.env.BROWSEROS_DIR
+  } else {
+    process.env.BROWSEROS_DIR = previousBrowserosDir
+  }
 })
 
 describe('filesystem_read', () => {
@@ -101,11 +116,67 @@ describe('filesystem_read', () => {
     expect(result.text).toContain('nested content')
   })
 
-  it('handles absolute paths', async () => {
+  it('rejects absolute paths', async () => {
     const absPath = join(tmpDir, 'abs.txt')
     await writeFile(absPath, 'absolute')
     const result = await exec({ path: absPath })
-    expect(result.text).toContain('absolute')
+    expect(result.isError).toBe(true)
+    expect(result.text).toContain('relative to the selected workspace')
+  })
+
+  it('rejects traversal outside the workspace', async () => {
+    const outsideDir = join(
+      tmpdir(),
+      `fs-read-outside-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    )
+    await mkdir(outsideDir, { recursive: true })
+    try {
+      await writeFile(join(outsideDir, 'secret.txt'), 'secret')
+      const result = await exec({
+        path: `../${basename(outsideDir)}/secret.txt`,
+      })
+      expect(result.isError).toBe(true)
+      expect(result.text).toContain('outside the selected workspace')
+    } finally {
+      await rm(outsideDir, { recursive: true, force: true })
+    }
+  })
+
+  it('rejects symlinks that point outside the workspace', async () => {
+    const outsideDir = join(
+      tmpdir(),
+      `fs-read-symlink-outside-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    )
+    await mkdir(outsideDir, { recursive: true })
+    try {
+      await writeFile(join(outsideDir, 'secret.txt'), 'secret')
+      await symlink(join(outsideDir, 'secret.txt'), join(tmpDir, 'secret-link'))
+      const result = await exec({ path: 'secret-link' })
+      expect(result.isError).toBe(true)
+      expect(result.text).toContain('outside the selected workspace')
+    } finally {
+      await rm(outsideDir, { recursive: true, force: true })
+    }
+  })
+
+  it('reads BrowserOS-generated output files', async () => {
+    const outputDir = await getToolOutputDir()
+    const outputPath = join(outputDir, 'snapshot.md')
+    await writeFile(outputPath, 'generated snapshot')
+
+    const result = await exec({ path: outputPath })
+    expect(result.isError).toBeUndefined()
+    expect(result.text).toContain('generated snapshot')
+  })
+
+  it('rejects absolute BrowserOS state paths outside generated outputs', async () => {
+    await getToolOutputDir()
+    const statePath = join(browserosDir, 'config.json')
+    await writeFile(statePath, '{}')
+
+    const result = await exec({ path: statePath })
+    expect(result.isError).toBe(true)
+    expect(result.text).toContain('outside BrowserOS tool output')
   })
 
   it('errors when a read would exceed the line limit', async () => {

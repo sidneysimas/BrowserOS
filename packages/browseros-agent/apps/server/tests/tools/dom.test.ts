@@ -1,8 +1,8 @@
 import { describe, it } from 'bun:test'
 import assert from 'node:assert'
-import { existsSync, readFileSync, rmSync, unlinkSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { dirname, join } from 'node:path'
+import { existsSync, readFileSync, realpathSync, unlinkSync } from 'node:fs'
+import { dirname, isAbsolute, relative } from 'node:path'
+import { getToolOutputDir } from '../../src/lib/browseros-dir'
 import {
   type WithBrowserContext,
   withBrowser,
@@ -79,9 +79,17 @@ const RICH_PAGE = `data:text/html,${encodeURIComponent(`<!DOCTYPE html>
 
 function cleanupSavedDom(domPath: string): void {
   unlinkSync(domPath)
-  try {
-    rmSync(dirname(domPath))
-  } catch {}
+}
+
+async function assertSavedUnderBrowserToolOutput(
+  domPath: string,
+): Promise<void> {
+  const outputDir = await getToolOutputDir()
+  const rel = relative(realpathSync(outputDir), realpathSync(dirname(domPath)))
+  assert.ok(
+    rel === '' || (!rel.startsWith('..') && !isAbsolute(rel)),
+    'Saved DOM file should be written to BrowserOS tool output',
+  )
 }
 
 /** Opens the shared DOM fixture after its static form controls are queryable. */
@@ -121,12 +129,7 @@ describe('get_dom', () => {
 
         assert.ok(textOf(result).includes('Saved DOM'))
         assert.ok(existsSync(domPath), 'Saved DOM file should exist')
-        assert.ok(
-          dirname(domPath).startsWith(
-            join(tmpdir(), 'browseros-browser-tool-'),
-          ),
-          'Saved DOM file should be written to an OS temp directory',
-        )
+        await assertSavedUnderBrowserToolOutput(domPath)
         assert.ok(html.includes('<html'), 'Should contain <html> tag')
         assert.ok(html.includes('</html>'), 'Should contain closing </html>')
         assert.ok(html.includes('id="login-form"'), 'Should contain form ID')
@@ -275,12 +278,7 @@ describe('get_dom', () => {
         const html = readFileSync(domPath, 'utf8')
 
         assert.ok(textOf(result).includes('Saved DOM'))
-        assert.ok(
-          dirname(domPath).startsWith(
-            join(tmpdir(), 'browseros-browser-tool-'),
-          ),
-          'Saved DOM file should be written to an OS temp directory',
-        )
+        await assertSavedUnderBrowserToolOutput(domPath)
         assert.ok(data.totalLength > 100_000, 'Expected a large DOM payload')
         assert.strictEqual(html.length, data.totalLength)
         assert.ok(

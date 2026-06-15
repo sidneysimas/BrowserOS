@@ -53,6 +53,20 @@ export interface AiSdkAgentConfig {
   browserUseNewTools: boolean
 }
 
+/** Builds filesystem tools only for model-backed agent sessions with an explicit workspace. */
+export function buildAgentFilesystemToolSet(
+  resolvedConfig: ResolvedAgentConfig,
+): ToolSet {
+  if (
+    isAcpProvider(resolvedConfig.provider) ||
+    resolvedConfig.chatMode ||
+    !resolvedConfig.workingDir
+  ) {
+    return {}
+  }
+  return buildFilesystemToolSet(resolvedConfig.workingDir)
+}
+
 export class AiSdkAgent {
   private constructor(
     private _agent: ToolLoopAgent,
@@ -208,12 +222,7 @@ export class AiSdkAgent {
     // workspace is selected, and for ACP providers (Claude Code and
     // Codex ship their own filesystem tools; double-registering would
     // collide on tool names and yield stale-snapshot behaviour).
-    const filesystemTools =
-      !useMcpBoundaryOnly &&
-      !config.resolvedConfig.chatMode &&
-      config.resolvedConfig.workingDir
-        ? buildFilesystemToolSet(config.resolvedConfig.workingDir)
-        : {}
+    const filesystemTools = buildAgentFilesystemToolSet(config.resolvedConfig)
     const tools = {
       ...browserTools,
       ...externalMcpTools,

@@ -90,8 +90,8 @@ describe('registerTools', () => {
 
     expect(infoMessages).toHaveLength(2)
     expect(infoMessages).toEqual([
-      expect.stringContaining('Registered 10 browser tools'),
-      expect.stringContaining('Registered 10 browser tools'),
+      expect.stringContaining('Registered 11 browser tools'),
+      expect.stringContaining('Registered 11 browser tools'),
     ])
   })
 
@@ -119,7 +119,7 @@ describe('registerTools', () => {
     })
 
     expect([...fake.handlers.keys()]).toEqual(BROWSER_TOOLS.map((t) => t.name))
-    expect(fake.handlers.size).toBe(10)
+    expect(fake.handlers.size).toBe(11)
   })
 
   it('registers the legacy browser tools when the switch is disabled', () => {

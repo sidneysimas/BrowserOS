@@ -1,5 +1,6 @@
 import { act } from './act'
 import { diff } from './diff'
+import { evalTool } from './eval'
 import type { ToolDefinition } from './framework'
 import { grep } from './grep'
 import { navigate } from './navigate'
@@ -10,7 +11,6 @@ import { snapshot } from './snapshot'
 import { tabs } from './tabs'
 import { wait } from './wait'
 
-/** The complete browser tool surface, in a sensible discovery order. */
 export const BROWSER_TOOLS: readonly ToolDefinition[] = [
   tabs,
   navigate,
@@ -21,5 +21,6 @@ export const BROWSER_TOOLS: readonly ToolDefinition[] = [
   grep,
   screenshot,
   wait,
+  evalTool,
   run,
 ]

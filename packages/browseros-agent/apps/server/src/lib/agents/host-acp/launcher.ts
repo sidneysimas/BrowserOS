@@ -56,15 +56,15 @@ export function resolveAcpSpawnCommand(
     platform: input.platform,
   })
   if (bunPath) {
-    // `bun x <pkg>@<range>` mirrors `npx -y <pkg>@<range>`. Quote the
-    // bun path because the BrowserOS resources directory can include
-    // spaces (on macOS the resources sit inside the .app bundle which
-    // can include "Application Support" or similar). acpx's splitArgv
-    // honours both single and double quotes.
     return {
-      command: `"${bunPath}" x ${config.acpPackageSpec}`,
+      command: `${quoteAcpCommandToken(bunPath)} x ${config.acpPackageSpec}`,
       source: 'bundled-bun',
     }
   }
   return { command: config.acpCommand, source: 'host-npx-fallback' }
+}
+
+/** Quotes a token for acpx command splitting while preserving Windows backslashes. */
+function quoteAcpCommandToken(value: string): string {
+  return `'${value.replace(/'/g, "'\\''")}'`
 }

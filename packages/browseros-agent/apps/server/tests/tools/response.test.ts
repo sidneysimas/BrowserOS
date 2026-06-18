@@ -73,4 +73,34 @@ describe('ToolResponse', () => {
     assert.ok(text.includes('[Page 1 snapshot]'))
     assert.ok(text.includes('[42] button "Submit"'))
   })
+
+  it('includes diff output when legacy build receives a diff post-action', async () => {
+    const response = new ToolResponse({ postActionTimeoutMs: 200 })
+    response.text('ok')
+    response.includeDiff(1)
+
+    const browser = {
+      session: {
+        observe: () => ({
+          diff: async () => ({
+            changed: true,
+            text: '+   button "Saved" [ref=e1]\n1 added, 0 removed',
+            added: 1,
+            removed: 0,
+            afterUrl: 'https://example.com/current',
+          }),
+        }),
+      },
+      getPageInfo: () => ({ url: 'https://example.com/stale' }),
+    } as unknown as Browser
+
+    const result = await response.build(browser)
+    const text = textOf(result)
+
+    assert.ok(text.includes('ok'))
+    assert.ok(text.includes('[Page 1 diff]'))
+    assert.ok(text.includes('origin=https://example.com/current'))
+    assert.ok(text.includes('+   button "Saved" [ref=e1]'))
+    assert.ok(!text.includes('origin=https://example.com/stale'))
+  })
 })

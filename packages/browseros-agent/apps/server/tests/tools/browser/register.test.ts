@@ -586,6 +586,59 @@ return 'late'
     ])
   })
 
+  it('caps large direct diffs with snapshot guidance', async () => {
+    const fake = createFakeServer()
+    const largeDiff = Array.from({ length: 2001 }, (_, i) => `word-${i}`).join(
+      ' ',
+    )
+    const session = {
+      observe: () => ({
+        diff: async () => ({
+          changed: true,
+          text: largeDiff,
+          added: 2001,
+          removed: 0,
+          afterUrl: 'https://example.com/large',
+        }),
+      }),
+      pages: {
+        getInfo: () => ({ url: 'https://example.com/large' }),
+      },
+    } as unknown as BrowserSession
+
+    registerBrowserTools(fake.server as never, session)
+
+    const result = await fake.handlers.get('diff')?.({ page: 1 })
+
+    expect(result?.isError).toBeFalsy()
+    expect(result?.structuredContent).toEqual({
+      added: 2001,
+      removed: 0,
+      truncated: true,
+      wordCount: 2001,
+    })
+    expect(result?.content).toEqual([
+      expect.objectContaining({
+        type: 'text',
+        text: expect.stringContaining('Diff is 2001 words'),
+      }),
+    ])
+    expect(result?.content).toEqual([
+      expect.objectContaining({
+        type: 'text',
+        text: expect.stringContaining(
+          'Run snapshot on page 1 for full details',
+        ),
+      }),
+    ])
+    expect(result?.content).toEqual([
+      expect.objectContaining({
+        type: 'text',
+        text: expect.not.stringContaining('word-2000'),
+      }),
+    ])
+  })
+
   it('returns a full snapshot when act readback sees a URL change', async () => {
     const fake = createFakeServer()
     const calls: string[] = []
@@ -625,33 +678,163 @@ return 'late'
       beforeUrl: 'https://example.com/start',
       afterUrl: 'https://example.com/destination',
     })
-    expect(result?.content).toEqual([
-      expect.objectContaining({
-        type: 'text',
-        text: expect.stringContaining('page URL changed;'),
-      }),
-    ])
-    expect(result?.content).toEqual([
-      expect.objectContaining({
-        type: 'text',
-        text: expect.stringContaining(
-          'returning full current snapshot instead of a diff',
-        ),
-      }),
-    ])
-    expect(result?.content).toEqual([
-      expect.objectContaining({
-        type: 'text',
-        text: expect.stringContaining('[UNTRUSTED_PAGE_CONTENT'),
-      }),
-    ])
-    expect(result?.content).toEqual([
-      expect.objectContaining({
-        type: 'text',
-        text: expect.stringContaining('- heading "Destination"'),
-      }),
-    ])
+    expect(result?.content).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: 'text',
+          text: expect.stringContaining('ok (click)'),
+        }),
+        expect.objectContaining({
+          type: 'text',
+          text: expect.stringContaining('[Page 1 diff]'),
+        }),
+        expect.objectContaining({
+          type: 'text',
+          text: expect.stringContaining('URL changed;'),
+        }),
+        expect.objectContaining({
+          type: 'text',
+          text: expect.stringContaining(
+            'returning full current snapshot instead of a diff',
+          ),
+        }),
+        expect.objectContaining({
+          type: 'text',
+          text: expect.stringContaining('[UNTRUSTED_PAGE_CONTENT'),
+        }),
+        expect.objectContaining({
+          type: 'text',
+          text: expect.stringContaining('- heading "Destination"'),
+        }),
+      ]),
+    )
     expect(calls).toEqual(['click'])
+  })
+
+  it('caps large URL-change act readbacks with URL guidance', async () => {
+    const fake = createFakeServer()
+    const largeSnapshot = Array.from(
+      { length: 2001 },
+      (_, i) => `destination-${i}`,
+    ).join(' ')
+    const session = {
+      input: () => ({
+        click: async () => undefined,
+      }),
+      observe: () => ({
+        diff: async () => ({
+          changed: true,
+          text: largeSnapshot,
+          added: 0,
+          removed: 0,
+          urlChanged: true,
+          beforeUrl: 'https://example.com/start',
+          afterUrl: 'https://example.com/destination',
+        }),
+      }),
+      pages: {
+        getInfo: () => ({ url: 'https://example.com/destination' }),
+      },
+    } as unknown as BrowserSession
+
+    registerBrowserTools(fake.server as never, session)
+
+    const result = await fake.handlers.get('act')?.({
+      page: 1,
+      kind: 'click',
+      ref: 'e1',
+    })
+
+    expect(result?.isError).toBeFalsy()
+    expect(result?.structuredContent).toEqual({
+      kind: 'click',
+      changed: true,
+      urlChanged: true,
+      beforeUrl: 'https://example.com/start',
+      afterUrl: 'https://example.com/destination',
+    })
+    expect(result?.content).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: 'text',
+          text: expect.stringContaining('URL changed'),
+        }),
+        expect.objectContaining({
+          type: 'text',
+          text: expect.stringContaining('full current snapshot is 2001 words'),
+        }),
+        expect.objectContaining({
+          type: 'text',
+          text: expect.stringContaining(
+            'Run snapshot on page 1 for full details',
+          ),
+        }),
+      ]),
+    )
+    expect(result?.content).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: 'text',
+          text: expect.not.stringContaining('destination-2000'),
+        }),
+      ]),
+    )
+  })
+
+  it('appends diff output after successful act mutations', async () => {
+    const fake = createFakeServer()
+    const calls: string[] = []
+    const session = {
+      input: () => ({
+        click: async () => calls.push('click'),
+      }),
+      observe: () => ({
+        diff: async () => {
+          calls.push('diff')
+          return {
+            changed: true,
+            text: '+   button "Saved" [ref=e1]\n1 added, 0 removed',
+            added: 1,
+            removed: 0,
+            afterUrl: 'https://example.com/current',
+          }
+        },
+      }),
+      pages: {
+        getInfo: () => ({ url: 'https://example.com/current' }),
+      },
+    } as unknown as BrowserSession
+
+    registerBrowserTools(fake.server as never, session)
+
+    const result = await fake.handlers.get('act')?.({
+      page: 1,
+      kind: 'click',
+      ref: 'e1',
+    })
+
+    expect(result?.isError).toBeFalsy()
+    expect(result?.structuredContent).toEqual({
+      kind: 'click',
+      changed: true,
+    })
+    expect(result?.content).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: 'text',
+          text: expect.stringContaining('ok (click)'),
+        }),
+        expect.objectContaining({
+          type: 'text',
+          text: expect.stringContaining('[Page 1 diff]'),
+        }),
+        expect.objectContaining({
+          type: 'text',
+          text: expect.stringContaining('+   button "Saved" [ref=e1]'),
+        }),
+      ]),
+    )
+    expect(calls).toEqual(['click', 'diff'])
   })
 
   it('caps page-context JavaScript timeouts', async () => {

@@ -93,6 +93,91 @@ describe('browser tool framework post-actions', () => {
     expect(text).toContain('[END_UNTRUSTED_PAGE_CONTENT')
   })
 
+  it('runs diff post-actions through ToolResponse', async () => {
+    const events: string[] = []
+    const postActionTool = defineTool({
+      name: 'diff_post_action_test',
+      description: 'Test diff post-action execution.',
+      input: z.object({ page: z.number().int() }),
+      handler: async (args, _ctx, response) => {
+        events.push('handler')
+        response.text('handler output')
+        response.includeDiff(args.page)
+      },
+    })
+    const session = {
+      observe: (page: number) => ({
+        diff: async () => {
+          events.push(`diff:${page}`)
+          return {
+            changed: true,
+            text: '+   button "Saved" [ref=e1]\n1 added, 0 removed',
+            added: 1,
+            removed: 0,
+            afterUrl: 'https://example.com/current',
+          }
+        },
+      }),
+      pages: {
+        getInfo: () => ({ url: 'https://example.com/stale' }),
+        getTabId: () => undefined,
+      },
+    } as unknown as BrowserSession
+
+    const result = await executeTool(postActionTool, { page: 3 }, { session })
+    const text = textOf(result)
+
+    expect(events).toEqual(['handler', 'diff:3'])
+    expect(result.isError).toBeFalsy()
+    expect(text.indexOf('handler output')).toBeLessThan(
+      text.indexOf('--- Additional context'),
+    )
+    expect(text).toContain('[Page 3 diff]')
+    expect(text).toContain('origin=https://example.com/current')
+    expect(text).toContain('[UNTRUSTED_PAGE_CONTENT')
+    expect(text).toContain('+   button "Saved" [ref=e1]')
+    expect(text).not.toContain('origin=https://example.com/stale')
+  })
+
+  it('caps large diff post-actions with snapshot guidance', async () => {
+    const largeDiff = Array.from({ length: 2001 }, (_, i) => `word-${i}`).join(
+      ' ',
+    )
+    const postActionTool = defineTool({
+      name: 'large_diff_post_action_test',
+      description: 'Test large diff post-action execution.',
+      input: z.object({ page: z.number().int() }),
+      handler: async (args, _ctx, response) => {
+        response.includeDiff(args.page)
+      },
+    })
+    const session = {
+      observe: () => ({
+        diff: async () => ({
+          changed: true,
+          text: largeDiff,
+          added: 2001,
+          removed: 0,
+          afterUrl: 'https://example.com/large',
+        }),
+      }),
+      pages: {
+        getInfo: () => ({ url: 'https://example.com/large' }),
+        getTabId: () => undefined,
+      },
+    } as unknown as BrowserSession
+
+    const result = await executeTool(postActionTool, { page: 4 }, { session })
+    const text = textOf(result)
+
+    expect(result.isError).toBeFalsy()
+    expect(text).toContain('[Page 4 diff]')
+    expect(text).toContain('Diff is 2001 words')
+    expect(text).toContain('Run snapshot on page 4 for full details')
+    expect(text).not.toContain('word-2000')
+    expect(text).not.toContain('[UNTRUSTED_PAGE_CONTENT')
+  })
+
   it('keeps compact error results from running undeclared post-actions', async () => {
     const errorTool = defineTool({
       name: 'error_test',

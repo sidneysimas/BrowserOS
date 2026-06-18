@@ -1,6 +1,8 @@
 import { TIMEOUTS } from '@browseros/shared/constants/timeouts'
 import type { Browser } from '../browser/browser'
 import type { BrowserSession } from '../browser/core/session'
+import type { SnapshotDiff } from '../browser/core/snapshot/diff'
+import { formatDiffResult } from './browser/diff-format'
 import { wrapUntrusted } from './browser/trust-boundary'
 
 export type ContentItem =
@@ -10,7 +12,14 @@ export type ContentItem =
 type PostAction =
   | { type: 'snapshot'; page: number }
   | { type: 'screenshot'; page: number }
+  | DiffPostAction
   | { type: 'pages' }
+
+type DiffPostAction = {
+  type: 'diff'
+  page: number
+  includeStructured?: boolean
+}
 
 export interface ToolResultMetadata {
   tabId?: number
@@ -86,6 +95,17 @@ export class ToolResponse {
     this.postActions.push({ type: 'screenshot', page })
   }
 
+  includeDiff(
+    page: number,
+    options: { includeStructured?: boolean } = {},
+  ): void {
+    this.postActions.push({
+      type: 'diff',
+      page,
+      includeStructured: options.includeStructured,
+    })
+  }
+
   includePages(): void {
     this.postActions.push({ type: 'pages' })
   }
@@ -107,6 +127,13 @@ export class ToolResponse {
         })
         this.text(`[Page ${action.page} screenshot]`)
         this.image(result.data, result.mimeType)
+        return
+      }
+      case 'diff': {
+        const d = await browser.session.observe(action.page).diff()
+        const origin =
+          d.afterUrl ?? browser.getPageInfo(action.page)?.url ?? 'unknown'
+        this.appendDiffPostAction(action, d, origin)
         return
       }
       case 'pages': {
@@ -150,6 +177,13 @@ export class ToolResponse {
         this.image(result.data, 'image/png')
         return
       }
+      case 'diff': {
+        const d = await session.observe(action.page).diff()
+        const origin =
+          d.afterUrl ?? session.pages.getInfo(action.page)?.url ?? 'unknown'
+        this.appendDiffPostAction(action, d, origin)
+        return
+      }
       case 'pages': {
         const pages = await session.pages.list()
         if (pages.length === 0) {
@@ -163,6 +197,25 @@ export class ToolResponse {
         }
         return
       }
+    }
+  }
+
+  private appendDiffPostAction(
+    action: DiffPostAction,
+    diff: SnapshotDiff,
+    origin: string,
+  ): void {
+    const formatted = formatDiffResult(diff, origin, action.page)
+    this.text(`[Page ${action.page} diff]\n${formatted.text}`)
+    if (action.includeStructured) {
+      this.data({
+        changed: diff.changed,
+        ...(diff.urlChanged && {
+          urlChanged: true,
+          beforeUrl: diff.beforeUrl,
+          afterUrl: diff.afterUrl,
+        }),
+      })
     }
   }
 

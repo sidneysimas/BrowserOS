@@ -423,6 +423,16 @@ describe('ChatService Klavis session rebuilds', () => {
 
     expect(createAgentSpy.mock.calls.length - createCallsBefore).toBe(2)
     expect(firstAgent.dispose).toHaveBeenCalledTimes(1)
+    const firstCreateConfig = createAgentSpy.mock.calls[
+      createCallsBefore
+    ]?.[0] as { outputFileAccess?: unknown } | undefined
+    const secondCreateConfig = createAgentSpy.mock.calls[
+      createCallsBefore + 1
+    ]?.[0] as { outputFileAccess?: unknown } | undefined
+    expect(firstCreateConfig?.outputFileAccess).toBeDefined()
+    expect(secondCreateConfig?.outputFileAccess).toBe(
+      firstCreateConfig?.outputFileAccess,
+    )
 
     // Persisted form stays the raw user text — TKT-774. The Klavis
     // context-change notice and the formatted user envelope go only

@@ -12,7 +12,7 @@ export const diff = defineTool({
     const d = await ctx.session.observe(args.page).diff()
     const origin =
       d.afterUrl ?? ctx.session.pages.getInfo(args.page)?.url ?? 'unknown'
-    const formatted = formatDiffResult(d, origin, args.page)
+    const formatted = await formatDiffResult(d, origin)
     return textResult(formatted.text, formatted.structured)
   },
 })

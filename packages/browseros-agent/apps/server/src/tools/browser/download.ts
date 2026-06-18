@@ -5,6 +5,7 @@ import { TIMEOUTS } from '@browseros/shared/constants/timeouts'
 import { z } from 'zod'
 import { getToolOutputDir } from '../../lib/browseros-dir'
 import { defineTool, textResult } from './framework'
+import { recordBrowserOutputFile } from './output-file'
 
 export const download = defineTool({
   name: 'download',
@@ -26,6 +27,7 @@ export const download = defineTool({
       ctx.session.input(args.page).click(args.ref),
     )
     const path = join(dir, suggestedFilename)
+    recordBrowserOutputFile(path)
     return textResult(`Downloaded "${suggestedFilename}" to: ${path}`, {
       page: args.page,
       ref: args.ref,

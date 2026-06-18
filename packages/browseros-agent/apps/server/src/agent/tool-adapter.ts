@@ -10,10 +10,15 @@ import {
   executeTool as executeBrowserTool,
   throwIfAborted,
 } from '../tools/browser/framework'
+import {
+  type BrowserOutputFileAccess,
+  withBrowserOutputFileAccess,
+} from '../tools/browser/output-file'
 import { BROWSER_TOOLS } from '../tools/browser/registry'
 
 export interface BrowserToolSetOptions {
   readOnly?: boolean
+  outputFileAccess?: BrowserOutputFileAccess
 }
 
 interface ToolExecuteOptions {
@@ -80,10 +85,12 @@ export function buildBrowserToolSet(
         throwIfAborted(signal)
         const result =
           readOnlyGuard(def, params, options) ??
-          (await executeBrowserTool(def, params as Record<string, unknown>, {
-            session,
-            signal,
-          }))
+          (await withBrowserOutputFileAccess(options.outputFileAccess, () =>
+            executeBrowserTool(def, params as Record<string, unknown>, {
+              session,
+              signal,
+            }),
+          ))
         metrics.log('tool_executed', {
           tool_name: def.name,
           duration_ms: Math.round(performance.now() - startTime),

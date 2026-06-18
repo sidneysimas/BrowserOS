@@ -133,7 +133,7 @@ export class ToolResponse {
         const d = await browser.session.observe(action.page).diff()
         const origin =
           d.afterUrl ?? browser.getPageInfo(action.page)?.url ?? 'unknown'
-        this.appendDiffPostAction(action, d, origin)
+        await this.appendDiffPostAction(action, d, origin)
         return
       }
       case 'pages': {
@@ -181,7 +181,7 @@ export class ToolResponse {
         const d = await session.observe(action.page).diff()
         const origin =
           d.afterUrl ?? session.pages.getInfo(action.page)?.url ?? 'unknown'
-        this.appendDiffPostAction(action, d, origin)
+        await this.appendDiffPostAction(action, d, origin)
         return
       }
       case 'pages': {
@@ -200,12 +200,12 @@ export class ToolResponse {
     }
   }
 
-  private appendDiffPostAction(
+  private async appendDiffPostAction(
     action: DiffPostAction,
     diff: SnapshotDiff,
     origin: string,
-  ): void {
-    const formatted = formatDiffResult(diff, origin, action.page)
+  ): Promise<void> {
+    const formatted = await formatDiffResult(diff, origin)
     this.text(`[Page ${action.page} diff]\n${formatted.text}`)
     if (action.includeStructured) {
       this.data({

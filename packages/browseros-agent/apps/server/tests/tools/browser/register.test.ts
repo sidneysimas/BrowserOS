@@ -6,6 +6,7 @@ import {
   realpathSync,
   rmSync,
   statSync,
+  writeFileSync,
 } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
@@ -24,8 +25,10 @@ import {
   executeTool,
   textResult,
 } from '../../../src/tools/browser/framework'
+import { createBrowserOutputFileAccess } from '../../../src/tools/browser/output-file'
 import { registerBrowserTools } from '../../../src/tools/browser/register'
 import { BROWSER_TOOLS } from '../../../src/tools/browser/registry'
+import { createReadTool } from '../../../src/tools/filesystem/read'
 
 type RegisteredHandler = (args: Record<string, unknown>) => Promise<{
   content: unknown
@@ -576,57 +579,77 @@ return 'late'
     ])
   })
 
-  it('caps large direct diffs with snapshot guidance', async () => {
-    const fake = createFakeServer()
-    const largeDiff = Array.from({ length: 2001 }, (_, i) => `word-${i}`).join(
-      ' ',
-    )
-    const session = {
-      observe: () => ({
-        diff: async () => ({
-          changed: true,
-          text: largeDiff,
-          added: 2001,
-          removed: 0,
-          afterUrl: 'https://example.com/large',
+  it('writes large direct diffs to a BrowserOS output markdown file', async () => {
+    await withBrowserosDir(async () => {
+      const fake = createFakeServer()
+      const largeDiff = Array.from(
+        { length: 2001 },
+        (_, i) => `word-${i}`,
+      ).join(' ')
+      const session = {
+        observe: () => ({
+          diff: async () => ({
+            changed: true,
+            text: largeDiff,
+            added: 2001,
+            removed: 0,
+            afterUrl: 'https://example.com/large',
+          }),
         }),
-      }),
-      pages: {
-        getInfo: () => ({ url: 'https://example.com/large' }),
-      },
-    } as unknown as BrowserSession
+        pages: {
+          getInfo: () => ({ url: 'https://example.com/large' }),
+        },
+      } as unknown as BrowserSession
 
-    registerBrowserTools(fake.server as never, session)
+      registerBrowserTools(fake.server as never, session)
 
-    const result = await fake.handlers.get('diff')?.({ page: 1 })
+      const result = await fake.handlers.get('diff')?.({ page: 1 })
 
-    expect(result?.isError).toBeFalsy()
-    expect(result?.structuredContent).toEqual({
-      added: 2001,
-      removed: 0,
-      truncated: true,
-      wordCount: 2001,
+      expect(result?.isError).toBeFalsy()
+      const data = result?.structuredContent as
+        | {
+            added: number
+            removed: number
+            truncated: boolean
+            wordCount: number
+            path: string
+            contentLength: number
+            writtenToFile: boolean
+          }
+        | undefined
+      expect(data).toMatchObject({
+        added: 2001,
+        removed: 0,
+        truncated: true,
+        wordCount: 2001,
+        writtenToFile: true,
+      })
+      const savedPath = data?.path
+      await expectBrowserToolOutputPath(savedPath)
+      expect(savedPath?.endsWith('.md')).toBe(true)
+      expect(result?.content).toEqual([
+        expect.objectContaining({
+          type: 'text',
+          text: expect.stringContaining('Diff is 2001 words'),
+        }),
+      ])
+      expect(result?.content).toEqual([
+        expect.objectContaining({
+          type: 'text',
+          text: expect.stringContaining(savedPath ?? ''),
+        }),
+      ])
+      expect(result?.content).toEqual([
+        expect.objectContaining({
+          type: 'text',
+          text: expect.not.stringContaining('word-2000'),
+        }),
+      ])
+      const savedContent = readFileSync(savedPath ?? '', 'utf8')
+      expect(savedContent).toContain('[UNTRUSTED_PAGE_CONTENT')
+      expect(savedContent).toContain('word-2000')
+      expect(data?.contentLength).toBe(savedContent.length)
     })
-    expect(result?.content).toEqual([
-      expect.objectContaining({
-        type: 'text',
-        text: expect.stringContaining('Diff is 2001 words'),
-      }),
-    ])
-    expect(result?.content).toEqual([
-      expect.objectContaining({
-        type: 'text',
-        text: expect.stringContaining(
-          'Run snapshot on page 1 for full details',
-        ),
-      }),
-    ])
-    expect(result?.content).toEqual([
-      expect.objectContaining({
-        type: 'text',
-        text: expect.not.stringContaining('word-2000'),
-      }),
-    ])
   })
 
   it('returns a full snapshot when act readback sees a URL change', async () => {
@@ -701,74 +724,76 @@ return 'late'
     expect(calls).toEqual(['click'])
   })
 
-  it('caps large URL-change act readbacks with URL guidance', async () => {
-    const fake = createFakeServer()
-    const largeSnapshot = Array.from(
-      { length: 2001 },
-      (_, i) => `destination-${i}`,
-    ).join(' ')
-    const session = {
-      input: () => ({
-        click: async () => undefined,
-      }),
-      observe: () => ({
-        diff: async () => ({
-          changed: true,
-          text: largeSnapshot,
-          added: 0,
-          removed: 0,
-          urlChanged: true,
-          beforeUrl: 'https://example.com/start',
-          afterUrl: 'https://example.com/destination',
+  it('writes large URL-change act readbacks to a BrowserOS output file', async () => {
+    await withBrowserosDir(async () => {
+      const fake = createFakeServer()
+      const largeSnapshot = Array.from(
+        { length: 2001 },
+        (_, i) => `destination-${i}`,
+      ).join(' ')
+      const session = {
+        input: () => ({
+          click: async () => undefined,
         }),
-      }),
-      pages: {
-        getInfo: () => ({ url: 'https://example.com/destination' }),
-      },
-    } as unknown as BrowserSession
+        observe: () => ({
+          diff: async () => ({
+            changed: true,
+            text: largeSnapshot,
+            added: 0,
+            removed: 0,
+            urlChanged: true,
+            beforeUrl: 'https://example.com/start',
+            afterUrl: 'https://example.com/destination',
+          }),
+        }),
+        pages: {
+          getInfo: () => ({ url: 'https://example.com/destination' }),
+        },
+      } as unknown as BrowserSession
 
-    registerBrowserTools(fake.server as never, session)
+      registerBrowserTools(fake.server as never, session)
 
-    const result = await fake.handlers.get('act')?.({
-      page: 1,
-      kind: 'click',
-      ref: 'e1',
+      const result = await fake.handlers.get('act')?.({
+        page: 1,
+        kind: 'click',
+        ref: 'e1',
+      })
+
+      expect(result?.isError).toBeFalsy()
+      expect(result?.structuredContent).toEqual({
+        kind: 'click',
+        changed: true,
+        urlChanged: true,
+        beforeUrl: 'https://example.com/start',
+        afterUrl: 'https://example.com/destination',
+      })
+      expect(result?.content).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            type: 'text',
+            text: expect.stringContaining('URL changed'),
+          }),
+          expect.objectContaining({
+            type: 'text',
+            text: expect.stringContaining(
+              'full current snapshot is 2001 words',
+            ),
+          }),
+          expect.objectContaining({
+            type: 'text',
+            text: expect.stringContaining('saved to:'),
+          }),
+        ]),
+      )
+      expect(result?.content).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            type: 'text',
+            text: expect.not.stringContaining('destination-2000'),
+          }),
+        ]),
+      )
     })
-
-    expect(result?.isError).toBeFalsy()
-    expect(result?.structuredContent).toEqual({
-      kind: 'click',
-      changed: true,
-      urlChanged: true,
-      beforeUrl: 'https://example.com/start',
-      afterUrl: 'https://example.com/destination',
-    })
-    expect(result?.content).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          type: 'text',
-          text: expect.stringContaining('URL changed'),
-        }),
-        expect.objectContaining({
-          type: 'text',
-          text: expect.stringContaining('full current snapshot is 2001 words'),
-        }),
-        expect.objectContaining({
-          type: 'text',
-          text: expect.stringContaining(
-            'Run snapshot on page 1 for full details',
-          ),
-        }),
-      ]),
-    )
-    expect(result?.content).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          type: 'text',
-          text: expect.not.stringContaining('destination-2000'),
-        }),
-      ]),
-    )
   })
 
   it('appends diff output after successful act mutations', async () => {
@@ -900,8 +925,19 @@ return 'late'
         ]),
       )
       const data = result?.structuredContent as { path?: string } | undefined
+      const resultText = (result?.content[0] as { text?: string } | undefined)
+        ?.text
+      expect(resultText).toBeDefined()
+      expect(data?.path).toBeDefined()
+      const endMarkerIndex =
+        resultText?.indexOf('[END_UNTRUSTED_PAGE_CONTENT') ?? -1
+      const pathIndex = resultText?.indexOf(data?.path ?? '') ?? -1
+      expect(pathIndex).toBeGreaterThan(endMarkerIndex)
       await expectBrowserToolOutputPath(data?.path)
-      expect(readFileSync(data?.path ?? '', 'utf8')).toBe(largeText)
+      const savedContent = readFileSync(data?.path ?? '', 'utf8')
+      expect(savedContent).toContain('[UNTRUSTED_PAGE_CONTENT')
+      expect(savedContent).toContain('[END_UNTRUSTED_PAGE_CONTENT')
+      expect(savedContent).toContain(largeText)
     })
   })
 
@@ -1329,6 +1365,118 @@ describe('buildBrowserToolSet', () => {
     expect(tools.tabs).toBeDefined()
     expect(tools.new_page).toBeUndefined()
     expect(Object.keys(tools)).toEqual(BROWSER_TOOLS.map((t) => t.name))
+  })
+
+  it('records generated output paths from AI SDK browser tools', async () => {
+    await withBrowserosDir(async () => {
+      const outputFileAccess = createBrowserOutputFileAccess()
+      const largeText = 'x'.repeat(
+        TOOL_LIMITS.INLINE_PAGE_CONTENT_MAX_CHARS + 1,
+      )
+      const session = {
+        pages: {
+          getSession: async () => ({
+            session: {
+              Runtime: {
+                evaluate: async () => ({ result: { value: largeText } }),
+              },
+            },
+          }),
+          getInfo: () => ({ url: 'https://example.com' }),
+        },
+      } as unknown as BrowserSession
+      const tools = buildBrowserToolSet(session, { outputFileAccess })
+
+      const result = await tools.read.execute?.({ page: 1, format: 'text' }, {
+        abortSignal: new AbortController().signal,
+      } as never)
+      const text =
+        (result as { content?: Array<{ type: string; text: string }> }).content
+          ?.filter((item) => item.type === 'text')
+          .map((item) => item.text)
+          .join('\n') ?? ''
+      const savedPath = text.match(/saved to: (.+\.txt)/)?.[1]
+
+      expect(savedPath).toBeTruthy()
+      await expectBrowserToolOutputPath(savedPath)
+      expect(outputFileAccess.paths.has(savedPath ?? '')).toBe(true)
+    })
+  })
+
+  it('allows no-workspace filesystem readback for AI SDK downloads', async () => {
+    await withBrowserosDir(async () => {
+      const outputFileAccess = createBrowserOutputFileAccess()
+      const behaviors: string[] = []
+      const clicks: string[] = []
+      let downloadDir = ''
+      type DownloadHandler = (params: Record<string, unknown>) => void
+      const handlers: Record<string, DownloadHandler> = {}
+      const session = {
+        input: () => ({
+          click: async (ref: string) => {
+            clicks.push(ref)
+            writeFileSync(
+              join(downloadDir, 'report.csv'),
+              'name,value\nbrowseros,1\n',
+            )
+            handlers.downloadWillBegin?.({
+              guid: 'g1',
+              suggestedFilename: 'report.csv',
+            })
+            handlers.downloadProgress?.({ guid: 'g1', state: 'completed' })
+          },
+        }),
+        pages: {
+          getSession: async () => ({
+            session: {
+              Page: {
+                setDownloadBehavior: async (params: {
+                  behavior: string
+                  downloadPath?: string
+                }) => {
+                  behaviors.push(params.behavior)
+                  if (params.downloadPath) downloadDir = params.downloadPath
+                },
+                on: (event: string, handler: DownloadHandler) => {
+                  handlers[event] = handler
+                  return () => {
+                    delete handlers[event]
+                  }
+                },
+              },
+            },
+          }),
+        },
+      } as unknown as BrowserSession
+      const tools = buildBrowserToolSet(session, { outputFileAccess })
+      const readTool = createReadTool(undefined, {
+        allowedOutputPaths: outputFileAccess.paths,
+      }) as unknown as {
+        execute(params: Record<string, unknown>): Promise<{ text: string }>
+      }
+
+      const downloadResult = await tools.download.execute?.(
+        { page: 1, ref: 'e12' },
+        { abortSignal: new AbortController().signal } as never,
+      )
+      const text =
+        (
+          downloadResult as { content?: Array<{ type: string; text: string }> }
+        ).content
+          ?.filter((item) => item.type === 'text')
+          .map((item) => item.text)
+          .join('\n') ?? ''
+      const savedPath = text.match(/to: (.+report\.csv)/)?.[1]
+      const readResult = await readTool.execute({ path: savedPath })
+
+      expect(clicks).toEqual(['e12'])
+      expect(behaviors).toEqual(['allow', 'default'])
+      expect(savedPath).toBeTruthy()
+      expect(outputFileAccess.paths.has(savedPath ?? '')).toBe(true)
+      expect(readResult.text).toContain('[UNTRUSTED_PAGE_CONTENT')
+      expect(readResult.text).toContain('[END_UNTRUSTED_PAGE_CONTENT')
+      expect(readResult.text).toContain('browseros,1')
+    })
   })
 
   it('allows chat mode to list tabs without allowing tab mutation', async () => {

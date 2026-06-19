@@ -90,7 +90,11 @@ function resolveFeatureStaticSupport({
   alphaFeaturesEnabled: boolean
 }): boolean | null {
   if (feature === Feature.HERMES_AGENT_SUPPORT) {
-    return isDevelopment
+    return resolveStaticFeatureSupport({
+      isDevelopment,
+      alphaFeaturesEnabled,
+      requiresAlphaFlag: true,
+    })
   }
   if (feature === Feature.ALPHA_FEATURES_SUPPORT) {
     return alphaFeaturesEnabled

@@ -67,7 +67,7 @@ describe('resolveStaticFeatureSupport', () => {
 })
 
 describe('resolveFeatureStaticSupport', () => {
-  it('gates Hermes support on development mode only', () => {
+  it('gates Hermes support on alpha features', () => {
     expect(
       resolveFeatureStaticSupport({
         feature: Feature.HERMES_AGENT_SUPPORT,
@@ -80,9 +80,17 @@ describe('resolveFeatureStaticSupport', () => {
       resolveFeatureStaticSupport({
         feature: Feature.HERMES_AGENT_SUPPORT,
         isDevelopment: false,
-        alphaFeaturesEnabled: true,
+        alphaFeaturesEnabled: false,
       }),
     ).toBe(false)
+
+    expect(
+      resolveFeatureStaticSupport({
+        feature: Feature.HERMES_AGENT_SUPPORT,
+        isDevelopment: false,
+        alphaFeaturesEnabled: true,
+      }),
+    ).toBe(true)
   })
 
   it('preserves alpha-gated support for alpha features', () => {

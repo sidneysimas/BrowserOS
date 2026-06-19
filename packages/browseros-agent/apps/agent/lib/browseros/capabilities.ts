@@ -82,7 +82,7 @@ const FEATURE_CONFIG: { [K in Feature]: FeatureConfig } = {
   [Feature.QWEN_CODE_SUPPORT]: { minServerVersion: '0.0.77' },
   [Feature.CREDITS_SUPPORT]: { minServerVersion: '0.0.78' },
   [Feature.AGENT_HARNESS_SUPPORT]: { minBrowserOSVersion: '0.46.0.0' },
-  [Feature.HERMES_AGENT_SUPPORT]: { requiresDevelopmentFlag: true },
+  [Feature.HERMES_AGENT_SUPPORT]: { requiresAlphaFlag: true },
 }
 
 function parseVersion(version: string): number[] {

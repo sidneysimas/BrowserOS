@@ -175,6 +175,11 @@ features:
       - chrome/browser/extensions/chrome_extensions_browser_api_provider.cc
       - chrome/browser/media/extension_media_access_handler.cc
       - chrome/browser/ui/extensions/extension_side_panel_utils.h
+      - chrome/browser/ui/toasts/api/toast_id.cc
+      - chrome/browser/ui/toasts/api/toast_id.h
+      - chrome/browser/ui/toasts/toast_controller.cc
+      - chrome/browser/ui/toasts/toast_controller.h
+      - chrome/browser/ui/toasts/toast_service.cc
       - chrome/browser/ui/views/side_panel/extensions/extension_side_panel_utils.cc
       - chrome/common/extensions/api/_api_features.json
       - chrome/common/extensions/api/_permission_features.json
@@ -186,6 +191,7 @@ features:
       - extensions/browser/extension_function_histogram_value.h
       - extensions/common/mojom/api_permission_id.mojom
       - tools/metrics/histograms/metadata/extensions/enums.xml
+      - tools/metrics/histograms/metadata/toasts/enums.xml
 
   ota-updater:
     description: "feat: extensions ota updater"

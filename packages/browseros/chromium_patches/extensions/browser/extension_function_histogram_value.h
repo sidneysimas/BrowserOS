@@ -1,8 +1,8 @@
 diff --git a/extensions/browser/extension_function_histogram_value.h b/extensions/browser/extension_function_histogram_value.h
-index 8d3b969f8965b..73a01963005e0 100644
+index 8d3b969f8965b..1dff8a0ed8252 100644
 --- a/extensions/browser/extension_function_histogram_value.h
 +++ b/extensions/browser/extension_function_histogram_value.h
-@@ -2022,6 +2022,32 @@ enum HistogramValue {
+@@ -2022,6 +2022,33 @@ enum HistogramValue {
    AUTOFILLPRIVATE_GETREQUIREDATTRIBUTETYPESFORENTITYTYPENAME = 1959,
    PDFVIEWERPRIVATE_GLICSUMMARIZE = 1960,
    GLICPRIVATE_GETSTATE = 1961,
@@ -32,6 +32,7 @@ index 8d3b969f8965b..73a01963005e0 100644
 +  SIDEPANEL_BROWSEROSISOPEN = 1984,
 +  BROWSER_OS_GETBROWSEROSVERSIONNUMBER = 1985,
 +  BROWSER_OS_CHOOSEPATH = 1986,
++  BROWSER_OS_SHOWTOAST = 1987,
    // Last entry: Add new entries above, then run:
    // tools/metrics/histograms/update_extension_histograms.py
    ENUM_BOUNDARY

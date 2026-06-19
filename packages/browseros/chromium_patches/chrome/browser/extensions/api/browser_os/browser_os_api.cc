@@ -1,15 +1,16 @@
 diff --git a/chrome/browser/extensions/api/browser_os/browser_os_api.cc b/chrome/browser/extensions/api/browser_os/browser_os_api.cc
 new file mode 100644
-index 0000000000000..a75e576033207
+index 0000000000000..a136ab744a9e6
 --- /dev/null
 +++ b/chrome/browser/extensions/api/browser_os/browser_os_api.cc
-@@ -0,0 +1,250 @@
+@@ -0,0 +1,291 @@
 +// Copyright 2024 The Chromium Authors
 +// Use of this source code is governed by a BSD-style license that can be
 +// found in the LICENSE file.
 +
 +#include "chrome/browser/extensions/api/browser_os/browser_os_api.h"
 +
++#include <algorithm>
 +#include <optional>
 +#include <string>
 +#include <utility>
@@ -17,13 +18,19 @@ index 0000000000000..a75e576033207
 +#include "base/files/file_util.h"
 +#include "base/logging.h"
 +#include "base/strings/utf_string_conversions.h"
++#include "base/time/time.h"
 +#include "base/values.h"
 +#include "base/version_info/version_info.h"
 +#include "chrome/browser/browser_process.h"
 +#include "chrome/browser/browseros/metrics/browseros_metrics.h"
 +#include "chrome/browser/platform_util.h"
 +#include "chrome/browser/profiles/profile.h"
++#include "chrome/browser/ui/browser.h"
++#include "chrome/browser/ui/browser_finder.h"
++#include "chrome/browser/ui/browser_window/public/browser_window_features.h"
 +#include "chrome/browser/ui/select_file_policy/chrome_select_file_policy.h"
++#include "chrome/browser/ui/toasts/api/toast_id.h"
++#include "chrome/browser/ui/toasts/toast_controller.h"
 +#include "chrome/common/extensions/api/browser_os.h"
 +#include "components/prefs/pref_service.h"
 +#include "content/public/browser/web_contents.h"
@@ -250,6 +257,40 @@ index 0000000000000..a75e576033207
 +  results.Append(base::Value());
 +  Respond(ArgumentList(std::move(results)));
 +  Release();
++}
++
++ExtensionFunction::ResponseAction BrowserOSShowToastFunction::Run() {
++  std::optional<browser_os::ShowToast::Params> params =
++      browser_os::ShowToast::Params::Create(args());
++  EXTENSION_FUNCTION_VALIDATE(params);
++
++  if (params->message.empty()) {
++    return RespondNow(Error("Toast message must not be empty"));
++  }
++
++  Profile* profile = Profile::FromBrowserContext(browser_context());
++  Browser* browser = chrome::FindLastActiveWithProfile(profile);
++  if (!browser) {
++    return RespondNow(Error("No active browser window"));
++  }
++
++  ToastController* toast_controller = browser->GetFeatures().toast_controller();
++  if (!toast_controller) {
++    return RespondNow(Error("Toast controller unavailable"));
++  }
++
++  ToastParams toast_params(ToastId::kBrowserOSToast);
++  toast_params.body_string_override = base::UTF8ToUTF16(params->message);
++  if (params->duration_ms) {
++    constexpr int kMinDurationMs = 1000;
++    constexpr int kMaxDurationMs = 30000;
++    toast_params.timeout_override = base::Milliseconds(
++        std::clamp(*params->duration_ms, kMinDurationMs, kMaxDurationMs));
++  }
++
++  const bool shown = toast_controller->MaybeShowToast(std::move(toast_params));
++  return RespondNow(
++      ArgumentList(browser_os::ShowToast::Results::Create(shown)));
 +}
 +
 +}  // namespace api

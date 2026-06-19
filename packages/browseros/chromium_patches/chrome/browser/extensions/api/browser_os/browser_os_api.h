@@ -1,9 +1,9 @@
 diff --git a/chrome/browser/extensions/api/browser_os/browser_os_api.h b/chrome/browser/extensions/api/browser_os/browser_os_api.h
 new file mode 100644
-index 0000000000000..df88116794a9e
+index 0000000000000..fb83226e2b9e2
 --- /dev/null
 +++ b/chrome/browser/extensions/api/browser_os/browser_os_api.h
-@@ -0,0 +1,100 @@
+@@ -0,0 +1,112 @@
 +// Copyright 2024 The Chromium Authors
 +// Use of this source code is governed by a BSD-style license that can be
 +// found in the LICENSE file.
@@ -99,6 +99,18 @@ index 0000000000000..df88116794a9e
 +
 + private:
 +  scoped_refptr<ui::SelectFileDialog> select_file_dialog_;
++};
++
++class BrowserOSShowToastFunction : public ExtensionFunction {
++ public:
++  DECLARE_EXTENSION_FUNCTION("browserOS.showToast", BROWSER_OS_SHOWTOAST)
++
++  BrowserOSShowToastFunction() = default;
++
++ protected:
++  ~BrowserOSShowToastFunction() override = default;
++
++  ResponseAction Run() override;
 +};
 +
 +}  // namespace extensions::api

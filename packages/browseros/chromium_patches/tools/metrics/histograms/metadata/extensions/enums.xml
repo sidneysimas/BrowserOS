@@ -1,8 +1,8 @@
 diff --git a/tools/metrics/histograms/metadata/extensions/enums.xml b/tools/metrics/histograms/metadata/extensions/enums.xml
-index 67daa1883b62f..5ba89feefd54a 100644
+index 67daa1883b62f..b0374d92a0709 100644
 --- a/tools/metrics/histograms/metadata/extensions/enums.xml
 +++ b/tools/metrics/histograms/metadata/extensions/enums.xml
-@@ -2891,6 +2891,31 @@ Called by update_extension_histograms.py.-->
+@@ -2891,6 +2891,32 @@ Called by update_extension_histograms.py.-->
        label="AUTOFILLPRIVATE_GETREQUIREDATTRIBUTETYPESFORENTITYTYPENAME"/>
    <int value="1960" label="PDFVIEWERPRIVATE_GLICSUMMARIZE"/>
    <int value="1961" label="GLICPRIVATE_GETSTATE"/>
@@ -31,10 +31,11 @@ index 67daa1883b62f..5ba89feefd54a 100644
 +  <int value="1984" label="SIDEPANEL_BROWSEROSISOPEN"/>
 +  <int value="1985" label="BROWSER_OS_GETBROWSEROSVERSIONNUMBER"/>
 +  <int value="1986" label="BROWSER_OS_CHOOSEPATH"/>
++  <int value="1987" label="BROWSER_OS_SHOWTOAST"/>
  </enum>
  
  <!-- LINT.ThenChange(//extensions/browser/extension_function_histogram_value.h:HistogramValue) -->
-@@ -3282,6 +3307,7 @@ Called by update_extension_permission.py.-->
+@@ -3282,6 +3308,7 @@ Called by update_extension_permission.py.-->
    <int value="263" label="kEnterpriseLogin"/>
    <int value="264" label="kProxyOverrideRulesPrivate"/>
    <int value="265" label="kGlicPrivate"/>

@@ -18,6 +18,7 @@ type RegisterFn = (
   config: {
     description: string
     inputSchema?: ZodRawShape
+    outputSchema?: ZodRawShape
     annotations?: Record<string, unknown>
   },
   handler: (
@@ -56,6 +57,7 @@ export function registerBrowserTools(
       {
         description: tool.description,
         inputSchema: tool.input.shape,
+        ...(tool.output && { outputSchema: tool.output.shape }),
         ...(tool.annotations && {
           annotations: tool.annotations as Record<string, unknown>,
         }),

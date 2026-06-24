@@ -7,6 +7,7 @@ import {
 } from '../response'
 
 export type ToolInputSchema = ZodObject<ZodRawShape>
+export type ToolOutputSchema = ZodObject<ZodRawShape>
 
 export interface ToolContext {
   session: BrowserSession
@@ -28,6 +29,7 @@ export interface ToolDefinition {
   name: string
   description: string
   input: ToolInputSchema
+  output?: ToolOutputSchema
   annotations?: ToolAnnotations
   handler: (
     args: Record<string, unknown>,
@@ -40,6 +42,7 @@ export function defineTool<S extends ToolInputSchema>(def: {
   name: string
   description: string
   input: S
+  output?: ToolOutputSchema
   annotations?: ToolAnnotations
   handler: (
     args: TypeOf<S>,

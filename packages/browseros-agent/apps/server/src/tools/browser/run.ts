@@ -40,6 +40,12 @@ export const run = defineTool({
       .optional()
       .describe('Max run time in ms (default 30000).'),
   }),
+  output: z.object({
+    ok: z.boolean(),
+    value: z.unknown().optional(),
+    logs: z.array(z.string()),
+    error: z.string().optional(),
+  }),
   annotations: { openWorldHint: true },
   handler: async (args, ctx) => {
     let fn: (...injected: unknown[]) => Promise<unknown>

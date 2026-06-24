@@ -469,7 +469,11 @@ func runBatchFind(c toolCaller, page int, args []string) (*mcp.ToolResult, error
 	if err != nil {
 		return nil, err
 	}
-	matches := findMatches(snapshotLines(grepResult.TextContent()), query)
+	lines, err := grepMatchLines(grepResult)
+	if err != nil {
+		return nil, err
+	}
+	matches := findMatches(lines, query)
 	selected, err := selectFindMatch(matches, query)
 	if err != nil {
 		return nil, err

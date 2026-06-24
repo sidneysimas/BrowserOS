@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"encoding/base64"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -212,6 +213,42 @@ func TestFindMatchesRoleNameNth(t *testing.T) {
 	}
 	if selected.ref != "e13" {
 		t.Fatalf("selected ref = %q, want e13", selected.ref)
+	}
+}
+
+func TestGrepMatchLinesUsesStructuredMatches(t *testing.T) {
+	result := &mcp.ToolResult{
+		Content: []mcp.ContentItem{{Type: "text", Text: "[UNTRUSTED_PAGE_CONTENT]\nignored\n[END_UNTRUSTED_PAGE_CONTENT]"}},
+		StructuredContent: map[string]any{
+			"matches": []any{
+				`- button "Add to Cart" [ref=e12]`,
+				`- button "Add to Cart" [ref=e13]`,
+			},
+		},
+	}
+
+	lines, err := grepMatchLines(result)
+	if err != nil {
+		t.Fatalf("grepMatchLines() error = %v", err)
+	}
+	want := []string{
+		`- button "Add to Cart" [ref=e12]`,
+		`- button "Add to Cart" [ref=e13]`,
+	}
+	if !reflect.DeepEqual(lines, want) {
+		t.Fatalf("lines = %#v, want %#v", lines, want)
+	}
+}
+
+func TestGrepMatchLinesRequiresStructuredMatches(t *testing.T) {
+	_, err := grepMatchLines(&mcp.ToolResult{
+		Content: []mcp.ContentItem{{Type: "text", Text: `- button "Buy" [ref=e1]`}},
+	})
+	if err == nil {
+		t.Fatal("grepMatchLines() error = nil, want missing structured matches error")
+	}
+	if !strings.Contains(err.Error(), "structured matches") {
+		t.Fatalf("error = %q, want structured matches message", err.Error())
 	}
 }
 
@@ -428,6 +465,50 @@ func TestScreenshotToolArgsRejectsUnsupportedQualityFormat(t *testing.T) {
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("screenshot args = %#v, want %#v", got, want)
+	}
+}
+
+func TestWriteScreenshotUsesStructuredImage(t *testing.T) {
+	dir := t.TempDir()
+	filename := filepath.Join(dir, "shot.png")
+	result := &mcp.ToolResult{
+		Content: []mcp.ContentItem{{Type: "image", Data: base64.StdEncoding.EncodeToString([]byte("legacy"))}},
+		StructuredContent: map[string]any{
+			"page":   7,
+			"format": "png",
+			"image":  base64.StdEncoding.EncodeToString([]byte("structured")),
+		},
+	}
+
+	if err := writeScreenshot(result, filename); err != nil {
+		t.Fatalf("writeScreenshot() error = %v", err)
+	}
+	data, err := os.ReadFile(filename)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "structured" {
+		t.Fatalf("written data = %q, want structured image data", data)
+	}
+
+	addScreenshotPath(result, filename)
+	if result.StructuredContent["page"] != 7 {
+		t.Fatalf("page metadata = %v, want preserved", result.StructuredContent["page"])
+	}
+	if result.StructuredContent["path"] != filename {
+		t.Fatalf("path metadata = %v, want %q", result.StructuredContent["path"], filename)
+	}
+}
+
+func TestScreenshotImageDataRequiresStructuredImage(t *testing.T) {
+	_, err := screenshotImageData(&mcp.ToolResult{
+		Content: []mcp.ContentItem{{Type: "image", Data: base64.StdEncoding.EncodeToString([]byte("legacy"))}},
+	})
+	if err == nil {
+		t.Fatal("screenshotImageData() error = nil, want missing structured image error")
+	}
+	if !strings.Contains(err.Error(), "structured image") {
+		t.Fatalf("error = %q, want structured image message", err.Error())
 	}
 }
 

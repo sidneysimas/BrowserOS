@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"math"
 	"net/http"
 	"time"
 
@@ -135,82 +134,6 @@ func convertResult(r *sdkmcp.CallToolResult) *ToolResult {
 	}
 
 	return result
-}
-
-// ResolvePageID returns the explicit page ID or fetches the active page.
-func (c *Client) ResolvePageID(explicit *int) (int, error) {
-	if explicit != nil {
-		return *explicit, nil
-	}
-	result, err := c.CallTool("run", map[string]any{
-		"code": `const pages = await browser.pages.list()
-const page = pages.find((p) => p.isActive) ?? pages[0]
-if (!page) throw new Error('No active page found.')
-return page.pageId`,
-	})
-	if err != nil {
-		return 0, fmt.Errorf("no active page: %w", err)
-	}
-
-	if pageID, ok := extractPageID(result.StructuredContent); ok {
-		return pageID, nil
-	}
-
-	return 0, fmt.Errorf("could not determine active page ID from response")
-}
-
-func extractPageID(sc map[string]any) (int, bool) {
-	if sc == nil {
-		return 0, false
-	}
-	if pageID, ok := intValue(sc["pageId"]); ok {
-		return pageID, true
-	}
-	if pageID, ok := intValue(sc["value"]); ok {
-		return pageID, true
-	}
-	page, ok := sc["page"].(map[string]any)
-	if !ok {
-		if value, valueOK := sc["value"].(map[string]any); valueOK {
-			pageID, ok := intValue(value["pageId"])
-			if ok {
-				return pageID, true
-			}
-			page, ok = value["page"].(map[string]any)
-		}
-	}
-	if !ok {
-		return 0, false
-	}
-	pageID, ok := intValue(page["pageId"])
-	if !ok {
-		return 0, false
-	}
-	return pageID, true
-}
-
-func intValue(v any) (int, bool) {
-	switch n := v.(type) {
-	case int:
-		return n, true
-	case int32:
-		return int(n), true
-	case int64:
-		return int(n), true
-	case float64:
-		if math.Trunc(n) != n {
-			return 0, false
-		}
-		return int(n), true
-	case json.Number:
-		i, err := n.Int64()
-		if err != nil {
-			return 0, false
-		}
-		return int(i), true
-	default:
-		return 0, false
-	}
 }
 
 // Health checks the /health endpoint (REST, not MCP).

@@ -59,7 +59,10 @@ func init() {
 			if err != nil {
 				output.Error(err.Error(), 1)
 			}
-			lines := snapshotLines(grepResult.TextContent())
+			lines, err := grepMatchLines(grepResult)
+			if err != nil {
+				output.Error(err.Error(), 1)
+			}
 			matches := findMatches(lines, query)
 			selected, err := selectFindMatch(matches, query)
 			if err != nil {
@@ -161,20 +164,33 @@ func (q findQuery) grepLimit() int {
 	return limit
 }
 
-func snapshotLines(text string) []string {
-	rawLines := strings.Split(text, "\n")
-	lines := make([]string, 0, len(rawLines))
-	for _, line := range rawLines {
-		trimmed := strings.TrimSpace(line)
-		if trimmed == "" || strings.HasPrefix(trimmed, "[UNTRUSTED_PAGE_CONTENT") || strings.HasPrefix(trimmed, "[END_UNTRUSTED_PAGE_CONTENT") {
-			continue
-		}
-		lines = append(lines, line)
+// grepMatchLines extracts the server-provided candidate lines that find acts on.
+func grepMatchLines(result *mcp.ToolResult) ([]string, error) {
+	if result == nil || result.StructuredContent == nil {
+		return nil, fmt.Errorf("grep response missing structured matches")
 	}
-	return lines
+	raw, ok := result.StructuredContent["matches"]
+	if !ok {
+		return nil, fmt.Errorf("grep response missing structured matches")
+	}
+	switch matches := raw.(type) {
+	case []any:
+		lines := make([]string, 0, len(matches))
+		for _, match := range matches {
+			line, ok := match.(string)
+			if !ok {
+				return nil, fmt.Errorf("grep response included a non-string match")
+			}
+			lines = append(lines, line)
+		}
+		return lines, nil
+	case []string:
+		return append([]string(nil), matches...), nil
+	default:
+		return nil, fmt.Errorf("grep response missing structured matches")
+	}
 }
 
-// findMatches returns snapshot lines with refs that satisfy the requested text or role filter.
 func findMatches(lines []string, query findQuery) []findMatch {
 	matches := []findMatch{}
 	for _, line := range lines {

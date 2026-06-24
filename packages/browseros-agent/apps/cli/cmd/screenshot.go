@@ -45,7 +45,7 @@ func init() {
 				if err := writeScreenshot(result, outFile); err != nil {
 					output.Error(err.Error(), 1)
 				}
-				result.StructuredContent = map[string]any{"path": outFile}
+				addScreenshotPath(result, outFile)
 				if jsonOut {
 					output.JSON(result)
 				} else {
@@ -55,13 +55,7 @@ func init() {
 			}
 
 			if jsonOut {
-				output.JSONRaw(result)
-				return
-			}
-
-			img := result.ImageContent()
-			if img == nil {
-				output.Confirm("Screenshot taken (no image data returned)")
+				output.JSON(result)
 				return
 			}
 
@@ -105,13 +99,13 @@ func screenshotToolArgs(pageID int, format string, full bool, quality int, quali
 	return toolArgs, nil
 }
 
-// writeScreenshot stores inline MCP image content at the CLI-requested path.
+// writeScreenshot stores the structured screenshot image at the requested path.
 func writeScreenshot(result *mcp.ToolResult, filename string) error {
-	img := result.ImageContent()
-	if img == nil {
-		return fmt.Errorf("screenshot returned no image data")
+	image, err := screenshotImageData(result)
+	if err != nil {
+		return err
 	}
-	data, err := base64.StdEncoding.DecodeString(img.Data)
+	data, err := base64.StdEncoding.DecodeString(image)
 	if err != nil {
 		return fmt.Errorf("decode image: %w", err)
 	}
@@ -122,4 +116,22 @@ func writeScreenshot(result *mcp.ToolResult, filename string) error {
 		return fmt.Errorf("write file: %w", err)
 	}
 	return nil
+}
+
+func screenshotImageData(result *mcp.ToolResult) (string, error) {
+	if result == nil || result.StructuredContent == nil {
+		return "", fmt.Errorf("screenshot response missing structured image data")
+	}
+	image, ok := result.StructuredContent["image"].(string)
+	if !ok || image == "" {
+		return "", fmt.Errorf("screenshot response missing structured image data")
+	}
+	return image, nil
+}
+
+func addScreenshotPath(result *mcp.ToolResult, path string) {
+	if result.StructuredContent == nil {
+		result.StructuredContent = map[string]any{}
+	}
+	result.StructuredContent["path"] = path
 }

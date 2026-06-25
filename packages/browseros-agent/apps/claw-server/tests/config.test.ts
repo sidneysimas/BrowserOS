@@ -3,7 +3,10 @@ import { mkdtemp, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { loadClawConfig } from '../src/config'
-import { COCKPIT_CDP_PORT_DEFAULT, PROD_API_PORT } from '../src/shared/port'
+import {
+  CLAW_API_PORT_DEFAULT,
+  CLAW_CDP_PORT_DEFAULT,
+} from '../src/shared/port'
 
 async function writeConfig(contents: string): Promise<string> {
   const dir = await mkdtemp(join(tmpdir(), 'claw-config-'))
@@ -19,8 +22,8 @@ describe('loadClawConfig', () => {
     expect(result).toEqual({
       ok: true,
       value: {
-        port: PROD_API_PORT,
-        cdpPort: COCKPIT_CDP_PORT_DEFAULT,
+        port: CLAW_API_PORT_DEFAULT,
+        cdpPort: CLAW_CDP_PORT_DEFAULT,
       },
     })
   })
@@ -119,6 +122,37 @@ ports:
     })
   })
 
+  test('rejects an explicitly empty --config value', () => {
+    const result = loadClawConfig({
+      argv: ['--config='],
+      cwd: '/',
+      env: {},
+    })
+
+    expect(result).toEqual({
+      ok: false,
+      error: '--config requires a path',
+    })
+  })
+
+  test('rejects a blank --config value instead of falling back to CLAW_CONFIG', async () => {
+    const envConfigPath = await writeConfig(`
+ports:
+  server: 9300
+`)
+
+    const result = loadClawConfig({
+      argv: ['--config', '   '],
+      cwd: '/',
+      env: { CLAW_CONFIG: envConfigPath },
+    })
+
+    expect(result).toEqual({
+      ok: false,
+      error: '--config requires a path',
+    })
+  })
+
   test('returns a clear error for invalid env ports', () => {
     const result = loadClawConfig({
       argv: [],
@@ -164,10 +198,30 @@ ports:
       env: {},
     })
 
-    expect(result).toEqual({
-      ok: false,
-      error: 'Config file error: unknown ports key(s): cdpPort',
+    expect(result.ok).toBe(false)
+    if (!result.ok) {
+      expect(result.error).toContain('ports')
+      expect(result.error).toContain('cdpPort')
+    }
+  })
+
+  test('returns a clear error for malformed YAML', async () => {
+    const configPath = await writeConfig(`
+ports:
+  server: [9200
+`)
+
+    const result = loadClawConfig({
+      argv: ['--config', configPath],
+      cwd: '/',
+      env: {},
     })
+
+    expect(result.ok).toBe(false)
+    if (!result.ok) {
+      expect(result.error).toContain('Config file error:')
+      expect(result.error).toContain('Flow sequence')
+    }
   })
 
   test('returns a clear error for a missing config file', () => {

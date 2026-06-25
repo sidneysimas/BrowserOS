@@ -1,13 +1,31 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { isAbsolute, resolve } from 'node:path'
-import { parse } from 'yaml'
+import { Command } from 'commander'
+import { parseDocument } from 'yaml'
 import { z } from 'zod'
-import { COCKPIT_CDP_PORT_DEFAULT, PROD_API_PORT } from './shared/port'
+import { CLAW_API_PORT_DEFAULT, CLAW_CDP_PORT_DEFAULT } from './shared/port'
 
 const portSchema = z.number().int().min(1).max(65535)
+const optionalPortSchema = z.preprocess(
+  normalizePortInput,
+  portSchema.optional(),
+)
 const ClawConfigSchema = z.object({
   port: portSchema,
   cdpPort: portSchema,
+})
+const ClawEnvSchema = z.object({
+  port: optionalPortSchema,
+  cdpPort: optionalPortSchema,
+})
+const ClawConfigFileSchema = z.object({
+  ports: z
+    .object({
+      server: optionalPortSchema,
+      cdp: optionalPortSchema,
+    })
+    .strict()
+    .optional(),
 })
 
 export type ClawConfig = z.infer<typeof ClawConfigSchema>
@@ -22,6 +40,12 @@ interface LoadClawConfigOptions {
 }
 
 type PartialClawConfig = Partial<ClawConfig>
+type ConfigIssue = {
+  path: PropertyKey[]
+  message: string
+  code: string
+  keys?: string[]
+}
 
 /** Loads and validates Claw server ports from defaults, env, and YAML config. */
 export function loadClawConfig(
@@ -59,42 +83,57 @@ export function loadClawConfig(
 }
 
 function parseCliArgs(argv: string[]): ConfigResult<{ configPath?: string }> {
-  for (let index = 0; index < argv.length; index++) {
-    const arg = argv[index]
-    if (arg === '--config') {
-      const value = argv[index + 1]
-      if (!value || value.startsWith('--')) {
-        return { ok: false, error: '--config requires a path' }
-      }
-      return { ok: true, value: { configPath: value } }
-    }
-    if (arg.startsWith('--config=')) {
-      const value = arg.slice('--config='.length).trim()
-      if (!value) return { ok: false, error: '--config requires a path' }
-      return { ok: true, value: { configPath: value } }
-    }
+  const program = new Command()
+
+  try {
+    program
+      .name('claw-server')
+      .description('BrowserClaw standalone API')
+      .option('--config <path>', 'Path to YAML configuration file')
+      .exitOverride((err) => {
+        if (err.exitCode === 0) process.exit(0)
+        throw err
+      })
+      .parse(toUserArgs(argv), { from: 'user' })
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err)
+    return { ok: false, error: message }
   }
 
-  return { ok: true, value: {} }
+  const opts = program.opts<{ config?: string }>()
+  const configPath = cleanString(opts.config)
+  if (program.getOptionValueSource('config') === 'cli' && !configPath) {
+    return { ok: false, error: '--config requires a path' }
+  }
+
+  return { ok: true, value: { configPath } }
 }
 
 function parseRuntimeEnv(
   env: Record<string, string | undefined>,
 ): ConfigResult<PartialClawConfig> {
-  const port = parsePort(env.CLAW_SERVER_PORT, 'CLAW_SERVER_PORT')
-  if (!port.ok) return port
-
-  const cdpPort = parsePort(
-    env.BROWSEROS_CLAW_CDP_PORT,
-    'BROWSEROS_CLAW_CDP_PORT',
-  )
-  if (!cdpPort.ok) return cdpPort
+  const result = ClawEnvSchema.safeParse({
+    port: env.CLAW_SERVER_PORT,
+    cdpPort: env.BROWSEROS_CLAW_CDP_PORT,
+  })
+  if (!result.success) {
+    return {
+      ok: false,
+      error: `Invalid Claw server environment:\n${formatZodIssues(
+        result.error.issues,
+        {
+          port: 'CLAW_SERVER_PORT',
+          cdpPort: 'BROWSEROS_CLAW_CDP_PORT',
+        },
+      )}`,
+    }
+  }
 
   return {
     ok: true,
     value: omitUndefined({
-      port: port.value,
-      cdpPort: cdpPort.value,
+      port: result.data.port,
+      cdpPort: result.data.cdpPort,
     }),
   }
 }
@@ -112,76 +151,84 @@ function parseConfigFile(
 
   let raw: unknown
   try {
-    raw = parse(readFileSync(absPath, 'utf-8'))
+    const doc = parseDocument(readFileSync(absPath, 'utf-8'))
+    if (doc.errors.length > 0) {
+      return {
+        ok: false,
+        error: `Config file error: ${doc.errors.map((err) => err.message).join('\n')}`,
+      }
+    }
+    raw = doc.toJS()
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
     return { ok: false, error: `Config file error: ${message}` }
   }
 
-  if (raw == null) return { ok: true, value: {} }
-  if (!isRecord(raw)) {
-    return { ok: false, error: 'Config file error: expected a YAML mapping' }
-  }
-
-  const ports = raw.ports
-  if (ports === undefined) return { ok: true, value: {} }
-  if (!isRecord(ports)) {
-    return { ok: false, error: 'Config file error: ports must be a mapping' }
-  }
-  const unknownPortKeys = Object.keys(ports).filter(
-    (key) => key !== 'server' && key !== 'cdp',
-  )
-  if (unknownPortKeys.length > 0) {
+  const parsed = ClawConfigFileSchema.safeParse(raw ?? {})
+  if (!parsed.success) {
     return {
       ok: false,
-      error: `Config file error: unknown ports key(s): ${unknownPortKeys.join(', ')}`,
+      error: `Config file error:\n${formatZodIssues(parsed.error.issues)}`,
     }
   }
-
-  const port = parsePort(ports.server, 'ports.server')
-  if (!port.ok) return port
-
-  const cdpPort = parsePort(ports.cdp, 'ports.cdp')
-  if (!cdpPort.ok) return cdpPort
 
   return {
     ok: true,
     value: omitUndefined({
-      port: port.value,
-      cdpPort: cdpPort.value,
+      port: parsed.data.ports?.server,
+      cdpPort: parsed.data.ports?.cdp,
     }),
   }
 }
 
-function parsePort(
-  value: unknown,
-  source: string,
-): ConfigResult<number | undefined> {
-  if (value === undefined || value === null || value === '') {
-    return { ok: true, value: undefined }
-  }
+function normalizePortInput(value: unknown): unknown {
+  if (value === undefined || value === null) return undefined
+  if (typeof value !== 'string') return value
 
-  const parsed =
-    typeof value === 'number'
-      ? value
-      : typeof value === 'string'
-        ? Number(value.trim())
-        : Number.NaN
+  const trimmed = value.trim()
+  return trimmed === '' ? undefined : Number(trimmed)
+}
 
-  if (!Number.isInteger(parsed) || parsed < 1 || parsed > 65535) {
-    return {
-      ok: false,
-      error: `${source} must be an integer port between 1 and 65535`,
-    }
-  }
+function toUserArgs(argv: string[]): string[] {
+  return argv.length >= 2 && !argv[0]?.startsWith('-') ? argv.slice(2) : argv
+}
 
-  return { ok: true, value: parsed }
+function formatZodIssues(
+  issues: ConfigIssue[],
+  pathLabels: Record<string, string> = {},
+): string {
+  return issues
+    .map((issue) => {
+      const path = issue.path.map(String).join('.')
+      const source = pathLabels[path] ?? (path || 'config')
+      let message = issue.message
+
+      if (issue.code === 'unrecognized_keys' && issue.keys) {
+        message = `unknown key(s): ${issue.keys.join(', ')}`
+      } else if (isPortSource(source)) {
+        message = 'must be an integer port between 1 and 65535'
+      }
+
+      return `  - ${source}: ${message}`
+    })
+    .join('\n')
+}
+
+function isPortSource(source: string): boolean {
+  return [
+    'port',
+    'cdpPort',
+    'ports.server',
+    'ports.cdp',
+    'CLAW_SERVER_PORT',
+    'BROWSEROS_CLAW_CDP_PORT',
+  ].includes(source)
 }
 
 function getDefaults(): ClawConfig {
   return {
-    port: PROD_API_PORT,
-    cdpPort: COCKPIT_CDP_PORT_DEFAULT,
+    port: CLAW_API_PORT_DEFAULT,
+    cdpPort: CLAW_CDP_PORT_DEFAULT,
   }
 }
 
@@ -201,10 +248,6 @@ function omitUndefined<T extends Record<string, unknown>>(obj: T): Partial<T> {
   return Object.fromEntries(
     Object.entries(obj).filter(([, value]) => value !== undefined),
   ) as Partial<T>
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
 function cleanString(value: string | undefined): string | undefined {

@@ -11,7 +11,7 @@
  * single-file edit.
  */
 
-import { COCKPIT_MOUNT_PREFIX, PROD_API_PORT } from './port'
+import { CLAW_API_PORT_DEFAULT, COCKPIT_MOUNT_PREFIX } from './port'
 
 /** Path the v2 single MCP route is mounted at, relative to the cockpit prefix. */
 export const MCP_PATH = '/mcp'
@@ -28,6 +28,6 @@ export const BROWSEROS_MCP_SERVER_NAME = 'browseros'
  * server side only ever uses 127.0.0.1; the UI's `mcp-endpoint.ts`
  * resolves alternate bases (dev-launcher overrides, query string).
  */
-export function canonicalMcpUrlForPort(port = PROD_API_PORT): string {
+export function canonicalMcpUrlForPort(port = CLAW_API_PORT_DEFAULT): string {
   return `http://127.0.0.1:${port}${COCKPIT_MOUNT_PREFIX}${MCP_PATH}`
 }

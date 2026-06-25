@@ -19,8 +19,8 @@ import {
   MCP_PATH,
 } from '@browseros/claw-server/shared/mcp-url'
 import {
+  CLAW_API_PORT_DEFAULT,
   COCKPIT_MOUNT_PREFIX,
-  PROD_API_PORT,
 } from '@browseros/claw-server/shared/port'
 import {
   API_URL_STORAGE_KEY,
@@ -29,7 +29,7 @@ import {
 } from './client.helpers'
 
 function fallbackBaseUrl(): string {
-  return `http://127.0.0.1:${PROD_API_PORT}${COCKPIT_MOUNT_PREFIX}`
+  return `http://127.0.0.1:${CLAW_API_PORT_DEFAULT}${COCKPIT_MOUNT_PREFIX}`
 }
 
 /** Resolves the same cockpit base URL as the API client for pre-create previews. */

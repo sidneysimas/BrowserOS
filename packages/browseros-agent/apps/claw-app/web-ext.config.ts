@@ -54,8 +54,8 @@ const chromiumArgs = [
   '--browseros-dock-icon=dev',
 ]
 
-if (env.BROWSEROS_CDP_PORT) {
-  chromiumArgs.push(`--remote-debugging-port=${env.BROWSEROS_CDP_PORT}`)
+if (env.BROWSEROS_CLAW_CDP_PORT) {
+  chromiumArgs.push(`--remote-debugging-port=${env.BROWSEROS_CLAW_CDP_PORT}`)
 }
 if (env.BROWSEROS_SERVER_PORT) {
   chromiumArgs.push(`--browseros-mcp-port=${env.BROWSEROS_SERVER_PORT}`)
@@ -64,12 +64,6 @@ if (env.BROWSEROS_SERVER_PORT) {
   // port falls back to server port.
   chromiumArgs.push(`--browseros-proxy-port=${env.BROWSEROS_SERVER_PORT}`)
 }
-if (env.BROWSEROS_EXTENSION_PORT) {
-  chromiumArgs.push(
-    `--browseros-extension-port=${env.BROWSEROS_EXTENSION_PORT}`,
-  )
-}
-
 export default defineWebExtConfig({
   binaries: {
     chrome:

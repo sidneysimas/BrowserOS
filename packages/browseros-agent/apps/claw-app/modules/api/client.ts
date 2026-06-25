@@ -24,8 +24,8 @@
 
 import type { AppType } from '@browseros/claw-server/server'
 import {
+  CLAW_API_PORT_DEFAULT,
   COCKPIT_MOUNT_PREFIX,
-  PROD_API_PORT,
 } from '@browseros/claw-server/shared/port'
 import { hc } from 'hono/client'
 import {
@@ -35,7 +35,7 @@ import {
 } from './client.helpers'
 
 function resolveApiBaseUrl(): string {
-  const fallback = `http://127.0.0.1:${PROD_API_PORT}${COCKPIT_MOUNT_PREFIX}`
+  const fallback = `http://127.0.0.1:${CLAW_API_PORT_DEFAULT}${COCKPIT_MOUNT_PREFIX}`
   if (typeof window === 'undefined') return fallback
 
   const fromQuery = new URLSearchParams(window.location.search).get('apiUrl')

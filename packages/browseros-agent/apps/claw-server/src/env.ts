@@ -8,7 +8,7 @@
  */
 
 import type { ClawConfig } from './config'
-import { COCKPIT_CDP_PORT_DEFAULT, PROD_API_PORT } from './shared/port'
+import { CLAW_API_PORT_DEFAULT, CLAW_CDP_PORT_DEFAULT } from './shared/port'
 
 function readBrowserosDirOverride(): string | undefined {
   // biome-ignore lint/style/noProcessEnv: env.ts is the sanctioned env-reader for the package
@@ -40,8 +40,8 @@ function readBoolFlag(name: string): boolean {
  * port config before serving; tests may mutate fields for isolation.
  */
 export const env = {
-  port: PROD_API_PORT,
-  cdpPort: COCKPIT_CDP_PORT_DEFAULT,
+  port: CLAW_API_PORT_DEFAULT,
+  cdpPort: CLAW_CDP_PORT_DEFAULT,
   browserosDirOverride: readBrowserosDirOverride(),
   isDevelopment: readIsDevelopment(),
 }

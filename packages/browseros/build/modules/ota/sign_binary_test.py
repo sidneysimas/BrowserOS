@@ -16,11 +16,10 @@ def _write_exe(path: Path) -> None:
 
 
 class SignServerBundleWindowsTest(unittest.TestCase):
-    def test_signs_shipped_windows_binaries_without_claude(self):
+    def test_signs_shipped_windows_binaries_without_third_party_cli_tools(self):
         with tempfile.TemporaryDirectory() as tmp:
             resources = Path(tmp) / "resources"
             _write_exe(resources / "bin" / "browseros_server.exe")
-            _write_exe(resources / "bin" / "third_party" / "codex.exe")
 
             signed = []
 
@@ -35,7 +34,7 @@ class SignServerBundleWindowsTest(unittest.TestCase):
                     sign_binary.sign_server_bundle_windows(resources, EnvConfig())
                 )
 
-            self.assertEqual(signed, ["browseros_server.exe", "third_party/codex.exe"])
+            self.assertEqual(signed, ["browseros_server.exe"])
 
 
 if __name__ == "__main__":

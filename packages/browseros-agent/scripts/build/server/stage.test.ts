@@ -220,33 +220,7 @@ describe('server artifact staging', () => {
     }
   })
 
-  it('downloads bundled Codex CLI for Linux targets and marks it executable', async () => {
-    tempDir = await mkdtemp(join(tmpdir(), 'browseros-stage-test-'))
-    const sourceRoot = join(tempDir, 'source')
-    const distRoot = join(tempDir, 'dist')
-    const binaryPath = join(tempDir, 'browseros-server')
-    await writeFile(binaryPath, 'server')
-
-    const artifact = await stageTargetArtifact(
-      distRoot,
-      binaryPath,
-      linuxArm64Target,
-      [codexLinuxArm64Rule],
-      sourceRoot,
-      fakeObjectClient({
-        'artifacts/vendor/third_party/codex/codex-linux-arm64':
-          '#!/bin/sh\ncodex\n',
-      }),
-      fakeR2Config,
-      '0.0.0-test',
-    )
-
-    const codexPath = join(artifact.resourcesDir, 'bin/third_party/codex')
-    expect(await readFile(codexPath, 'utf8')).toBe('#!/bin/sh\ncodex\n')
-    expect((await stat(codexPath)).mode & 0o111).not.toBe(0)
-  })
-
-  it('downloads bundled Codex CLI for Windows targets without chmod', async () => {
+  it('downloads R2 resources for Windows targets without chmod', async () => {
     tempDir = await mkdtemp(join(tmpdir(), 'browseros-stage-test-'))
     const sourceRoot = join(tempDir, 'source')
     const distRoot = join(tempDir, 'dist')
@@ -257,62 +231,57 @@ describe('server artifact staging', () => {
       distRoot,
       binaryPath,
       windowsX64Target,
-      [codexWindowsX64Rule],
+      [windowsToolRule],
       sourceRoot,
       fakeObjectClient({
-        'artifacts/vendor/third_party/codex/codex-windows-x64.exe': 'codex.exe',
+        'artifacts/vendor/third_party/tool/tool-windows-x64.exe': 'tool.exe',
       }),
       fakeR2Config,
       '0.0.0-test',
     )
 
-    const codexPath = join(artifact.resourcesDir, 'bin/third_party/codex.exe')
-    expect(await readFile(codexPath, 'utf8')).toBe('codex.exe')
-    expect((await stat(codexPath)).mode & 0o111).toBe(0)
+    const toolPath = join(artifact.resourcesDir, 'bin/third_party/tool.exe')
+    expect(await readFile(toolPath, 'utf8')).toBe('tool.exe')
+    expect((await stat(toolPath)).mode & 0o111).toBe(0)
   })
 
-  it('loads target-filtered bundled CLI rules from the production manifest', () => {
+  it('does not package bundled agent CLI rules in the production manifest', () => {
     const manifest = loadManifest(
       'scripts/build/config/server-prod-resources.json',
     )
     const linuxRules = getTargetRules(manifest, linuxArm64Target)
     const windowsRules = getTargetRules(manifest, windowsX64Target)
-    const claudeRules = manifest.resources.filter(
+    const bundledAgentRules = manifest.resources.filter(
       (rule) =>
+        rule.name.includes('Codex') ||
         rule.name.includes('Claude Code') ||
+        rule.destination.includes('third_party/codex') ||
         rule.destination.includes('third_party/claude') ||
-        (rule.source.type === 'r2' && rule.source.key.includes('claude-code')),
+        (rule.source.type === 'r2' &&
+          (rule.source.key.includes('third_party/codex') ||
+            rule.source.key.includes('claude-code'))),
     )
 
-    expect(linuxRules).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          name: 'Codex - Linux ARM64',
-          source: {
-            type: 'r2',
-            key: 'third_party/codex/codex-linux-arm64',
-          },
-          destination: 'resources/bin/third_party/codex',
-          executable: true,
-        }),
-      ]),
+    expect(bundledAgentRules).toEqual([])
+    expect(
+      linuxRules.find((rule) => rule.destination.includes('third_party/codex')),
+    ).toBe(undefined)
+    expect(
+      windowsRules.find((rule) =>
+        rule.destination.includes('third_party/codex'),
+      ),
+    ).toBe(undefined)
+    expect(linuxRules.find((rule) => rule.name.startsWith('Bun - '))).toEqual(
+      expect.objectContaining({
+        destination: 'resources/bin/third_party/bun',
+        executable: true,
+      }),
     )
-    expect(windowsRules).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          name: 'Codex - Windows x64',
-          source: {
-            type: 'r2',
-            key: 'third_party/codex/codex-windows-x64.exe',
-          },
-          destination: 'resources/bin/third_party/codex.exe',
-          executable: true,
-        }),
-      ]),
-    )
-    expect(claudeRules).toEqual([])
-    expect(linuxRules.find((rule) => rule.name === 'Codex - Windows x64')).toBe(
-      undefined,
+    expect(windowsRules.find((rule) => rule.name.startsWith('Bun - '))).toEqual(
+      expect.objectContaining({
+        destination: 'resources/bin/third_party/bun.exe',
+        executable: true,
+      }),
     )
   })
 })
@@ -384,25 +353,13 @@ const bunRule: ResourceRule = {
   executable: true,
 }
 
-const codexLinuxArm64Rule: ResourceRule = {
-  name: 'Codex - Linux ARM64',
+const windowsToolRule: ResourceRule = {
+  name: 'Tool - Windows x64',
   source: {
     type: 'r2',
-    key: 'third_party/codex/codex-linux-arm64',
+    key: 'third_party/tool/tool-windows-x64.exe',
   },
-  destination: 'resources/bin/third_party/codex',
-  os: ['linux'],
-  arch: ['arm64'],
-  executable: true,
-}
-
-const codexWindowsX64Rule: ResourceRule = {
-  name: 'Codex - Windows x64',
-  source: {
-    type: 'r2',
-    key: 'third_party/codex/codex-windows-x64.exe',
-  },
-  destination: 'resources/bin/third_party/codex.exe',
+  destination: 'resources/bin/third_party/tool.exe',
   os: ['windows'],
   arch: ['x64'],
   executable: true,

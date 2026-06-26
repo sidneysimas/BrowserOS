@@ -56,61 +56,6 @@
       "executable": true
     },
     {
-      "name": "Codex - macOS ARM64",
-      "source": {
-        "type": "r2",
-        "key": "third_party/codex/codex-darwin-arm64"
-      },
-      "destination": "resources/bin/third_party/codex",
-      "os": ["macos"],
-      "arch": ["arm64"],
-      "executable": true
-    },
-    {
-      "name": "Codex - macOS x64",
-      "source": {
-        "type": "r2",
-        "key": "third_party/codex/codex-darwin-x64"
-      },
-      "destination": "resources/bin/third_party/codex",
-      "os": ["macos"],
-      "arch": ["x64"],
-      "executable": true
-    },
-    {
-      "name": "Codex - Linux ARM64",
-      "source": {
-        "type": "r2",
-        "key": "third_party/codex/codex-linux-arm64"
-      },
-      "destination": "resources/bin/third_party/codex",
-      "os": ["linux"],
-      "arch": ["arm64"],
-      "executable": true
-    },
-    {
-      "name": "Codex - Linux x64",
-      "source": {
-        "type": "r2",
-        "key": "third_party/codex/codex-linux-x64"
-      },
-      "destination": "resources/bin/third_party/codex",
-      "os": ["linux"],
-      "arch": ["x64"],
-      "executable": true
-    },
-    {
-      "name": "Codex - Windows x64",
-      "source": {
-        "type": "r2",
-        "key": "third_party/codex/codex-windows-x64.exe"
-      },
-      "destination": "resources/bin/third_party/codex.exe",
-      "os": ["windows"],
-      "arch": ["x64"],
-      "executable": true
-    },
-    {
       "name": "Drizzle migrations",
       "source": {
         "type": "local",

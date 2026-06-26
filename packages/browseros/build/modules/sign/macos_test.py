@@ -56,7 +56,7 @@ class MacOSSignDiscoveryTest(unittest.TestCase):
 
             self.assertIn(server_bin / "browseros_server", executables)
             self.assertIn(server_bin / "third_party" / "rg", executables)
-            self.assertIn(server_bin / "third_party" / "codex", executables)
+            self.assertNotIn(server_bin / "third_party" / "codex", executables)
             self.assertNotIn(server_bin / "third_party" / "claude", executables)
             self.assertNotIn(
                 server_bin / "third_party" / "lima" / "bin" / "limactl",
@@ -83,13 +83,13 @@ class VerifyServerResourcesBundleTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             chromium_src, app_path, source_root, bundle_root = self._setup(tmp)
             _write_exec(source_root / "bin" / "browseros_server")
-            _write_exec(source_root / "bin" / "third_party" / "codex")
+            _write_exec(source_root / "bin" / "third_party" / "rg")
             _write_exec(bundle_root / "bin" / "browseros_server")
 
             problems = verify_server_resources_bundle(app_path, chromium_src)
 
             self.assertEqual(len(problems), 1)
-            self.assertIn("bin/third_party/codex", problems[0])
+            self.assertIn("bin/third_party/rg", problems[0])
 
     def test_reports_lost_executable_bit(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -107,10 +107,10 @@ class VerifyServerResourcesBundleTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             chromium_src, app_path, source_root, bundle_root = self._setup(tmp)
             _write_exec(source_root / "bin" / "browseros_server")
-            _write_exec(source_root / "bin" / "third_party" / "codex")
+            _write_exec(source_root / "bin" / "third_party" / "rg")
             _write_file(source_root / "db" / "migrations" / "0000_init.sql")
             _write_exec(bundle_root / "bin" / "browseros_server")
-            _write_exec(bundle_root / "bin" / "third_party" / "codex")
+            _write_exec(bundle_root / "bin" / "third_party" / "rg")
             _write_file(bundle_root / "db" / "migrations" / "0000_init.sql")
 
             self.assertEqual(
@@ -173,7 +173,7 @@ class SignModuleGuardWiringTest(unittest.TestCase):
             source_root = (
                 chromium_src / "chrome" / "browser" / "browseros" / "server" / "resources"
             )
-            _write_exec(source_root / "bin" / "third_party" / "codex")
+            _write_exec(source_root / "bin" / "third_party" / "rg")
 
             ctx = Context(
                 chromium_src=chromium_src,
@@ -184,7 +184,7 @@ class SignModuleGuardWiringTest(unittest.TestCase):
             with self.assertRaises(RuntimeError) as raised:
                 MacOSSignModule()._verify_server_resources(app_path, ctx)
 
-            self.assertIn("bin/third_party/codex", str(raised.exception))
+            self.assertIn("bin/third_party/rg", str(raised.exception))
 
     def test_module_guard_accepts_matching_bundle(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -201,8 +201,8 @@ class SignModuleGuardWiringTest(unittest.TestCase):
                 / "default"
                 / "resources"
             )
-            _write_exec(source_root / "bin" / "third_party" / "codex")
-            _write_exec(bundle_root / "bin" / "third_party" / "codex")
+            _write_exec(source_root / "bin" / "third_party" / "rg")
+            _write_exec(bundle_root / "bin" / "third_party" / "rg")
 
             ctx = Context(
                 chromium_src=chromium_src,
@@ -399,7 +399,7 @@ class VerifySignatureComponentTest(unittest.TestCase):
 
     def _build_app(self, tmp):
         app_path = Path(tmp) / "BrowserOS.app"
-        codex = (
+        rg = (
             app_path
             / "Contents"
             / "Resources"
@@ -408,31 +408,31 @@ class VerifySignatureComponentTest(unittest.TestCase):
             / "resources"
             / "bin"
             / "third_party"
-            / "codex"
+            / "rg"
         )
-        _write_exec(codex)
-        return app_path, codex
+        _write_exec(rg)
+        return app_path, rg
 
     def test_fails_when_component_signature_invalid(self):
         with tempfile.TemporaryDirectory() as tmp:
-            app_path, codex = self._build_app(tmp)
+            app_path, rg = self._build_app(tmp)
             calls = []
 
             def run(cmd, cwd=None, check=True):
                 calls.append(cmd)
-                returncode = 1 if cmd[-1] == str(codex) else 0
+                returncode = 1 if cmd[-1] == str(rg) else 0
                 return _completed(cmd, returncode=returncode)
 
             with mock.patch.object(macos_module, "run_command", run):
                 self.assertFalse(verify_signature(app_path))
 
             self.assertTrue(
-                any(c[0] == "codesign" and c[-1] == str(codex) for c in calls)
+                any(c[0] == "codesign" and c[-1] == str(rg) for c in calls)
             )
 
     def test_passes_and_verifies_each_component(self):
         with tempfile.TemporaryDirectory() as tmp:
-            app_path, codex = self._build_app(tmp)
+            app_path, rg = self._build_app(tmp)
             calls = []
 
             with mock.patch.object(
@@ -442,7 +442,7 @@ class VerifySignatureComponentTest(unittest.TestCase):
 
             self.assertTrue(
                 any(
-                    c[0] == "codesign" and "--verify" in c and c[-1] == str(codex)
+                    c[0] == "codesign" and "--verify" in c and c[-1] == str(rg)
                     for c in calls
                 )
             )

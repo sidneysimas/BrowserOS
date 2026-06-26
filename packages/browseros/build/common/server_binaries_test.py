@@ -28,18 +28,19 @@ class MacosServerBinariesTest(unittest.TestCase):
             self.assertTrue(plist.exists(), f"{stem}: entitlements {plist} missing")
 
     def test_macos_sign_spec_for_resolves_by_stem(self):
-        spec = macos_sign_spec_for(Path("/x/codex"))
+        spec = macos_sign_spec_for(Path("/x/browseros_server"))
         assert spec is not None
-        self.assertEqual(spec.identifier_suffix, "codex")
+        self.assertEqual(spec.identifier_suffix, "browseros_server")
         self.assertIsNone(macos_sign_spec_for(Path("/x/not_a_known_binary")))
 
-    def test_agent_cli_entries_use_plain_hardened_runtime(self):
-        for binary in ["codex"]:
+    def test_third_party_tool_entries_use_plain_hardened_runtime(self):
+        for binary in ["rg"]:
             spec = macos_sign_spec_for(Path(f"/x/{binary}"))
             assert spec is not None
             self.assertEqual(spec.identifier_suffix, binary)
             self.assertEqual(spec.options, "runtime")
             self.assertIsNone(spec.entitlements)
+        self.assertIsNone(macos_sign_spec_for(Path("/x/codex")))
         self.assertIsNone(macos_sign_spec_for(Path("/x/claude")))
 
     def test_lima_is_not_registered_for_signing(self):
@@ -70,9 +71,6 @@ class WindowsServerBinariesTest(unittest.TestCase):
                 f"{rel} outside expected layout",
             )
 
-    def test_windows_includes_agent_cli_entries(self):
-        self.assertIn("third_party/codex.exe", WINDOWS_SERVER_BINARIES)
-
     def test_expected_windows_binary_paths_joins_root(self):
         root = Path("/tmp/fake/resources/bin")
         resolved = expected_windows_binary_paths(root)
@@ -87,6 +85,7 @@ class WindowsServerBinariesTest(unittest.TestCase):
             "third_party/podman/win-sshproxy.exe",
             "third_party/bun.exe",
             "third_party/rg.exe",
+            "third_party/codex.exe",
             "third_party/claude.exe",
         }
         leftover = forbidden & set(WINDOWS_SERVER_BINARIES)

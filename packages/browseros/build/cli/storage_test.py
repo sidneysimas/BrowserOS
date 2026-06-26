@@ -392,8 +392,8 @@ class BuildManifestTest(unittest.TestCase):
         self.assertIn("uploaded_by", manifest)
 
 
-class PackagedAgentCliContractTest(unittest.TestCase):
-    def test_server_resource_keys_match_storage_upload_keys(self) -> None:
+class ServerResourceManifestContractTest(unittest.TestCase):
+    def test_server_resource_manifest_does_not_package_codex(self) -> None:
         manifest_path = (
             Path(__file__).resolve().parents[3]
             / "browseros-agent"
@@ -403,18 +403,17 @@ class PackagedAgentCliContractTest(unittest.TestCase):
             / "server-prod-resources.json"
         )
         manifest = json.loads(manifest_path.read_text())
-        actual_keys = {
-            f"artifacts/vendor/{resource['source']['key']}"
+        codex_resources = [
+            resource
             for resource in manifest["resources"]
-            if resource["source"]["type"] == "r2"
-            and resource["source"]["key"].startswith("third_party/codex/")
-        }
-        expected_keys = {
-            f"{storage.CODEX_R2_PREFIX}/{storage._platform_binary_object_name('codex', platform.target)}"
-            for platform in storage.CODEX_PLATFORMS
-        }
+            if resource["destination"].startswith("resources/bin/third_party/codex")
+            or (
+                resource["source"]["type"] == "r2"
+                and resource["source"]["key"].startswith("third_party/codex/")
+            )
+        ]
 
-        self.assertEqual(actual_keys, expected_keys)
+        self.assertEqual(codex_resources, [])
 
 
 class ProcessArchTest(unittest.TestCase):

@@ -17,15 +17,17 @@ const ClawEnvSchema = z.object({
   port: optionalPortSchema,
   cdpPort: optionalPortSchema,
 })
-const ClawConfigFileSchema = z.object({
-  ports: z
-    .object({
-      server: optionalPortSchema,
-      cdp: optionalPortSchema,
-    })
-    .strict()
-    .optional(),
-})
+const ClawConfigFileSchema = z
+  .object({
+    ports: z
+      .object({
+        server: optionalPortSchema,
+        cdp: optionalPortSchema,
+      })
+      .strict()
+      .optional(),
+  })
+  .strict()
 
 export type ClawConfig = z.infer<typeof ClawConfigSchema>
 export type ConfigResult<T> =

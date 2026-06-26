@@ -16,6 +16,22 @@ async function writeConfig(contents: string): Promise<string> {
 }
 
 describe('loadClawConfig', () => {
+  test('loads the checked-in sample config', () => {
+    const result = loadClawConfig({
+      argv: ['--config', join(import.meta.dir, '..', 'config.sample.json')],
+      cwd: '/',
+      env: {},
+    })
+
+    expect(result).toEqual({
+      ok: true,
+      value: {
+        port: CLAW_API_PORT_DEFAULT,
+        cdpPort: CLAW_CDP_PORT_DEFAULT,
+      },
+    })
+  })
+
   test('uses standalone defaults when no env or config file is provided', () => {
     const result = loadClawConfig({ argv: [], env: {}, cwd: '/' })
 
@@ -223,6 +239,28 @@ describe('loadClawConfig', () => {
     if (!result.ok) {
       expect(result.error).toContain('ports')
       expect(result.error).toContain('cdpPort')
+    }
+  })
+
+  test('returns a clear error for unknown top-level JSON keys', async () => {
+    const configPath = await writeConfig(
+      JSON.stringify({
+        server_port: 9200,
+        cdp_port: 49337,
+      }),
+    )
+
+    const result = loadClawConfig({
+      argv: ['--config', configPath],
+      cwd: '/',
+      env: {},
+    })
+
+    expect(result.ok).toBe(false)
+    if (!result.ok) {
+      expect(result.error).toContain('config')
+      expect(result.error).toContain('server_port')
+      expect(result.error).toContain('cdp_port')
     }
   })
 

@@ -313,16 +313,6 @@
         "zod": "^3.25.76",
       },
     },
-    "packages/build-tools": {
-      "name": "@browseros/build-tools",
-      "version": "0.0.0",
-      "dependencies": {
-        "@aws-sdk/client-s3": "^3.1068.0",
-      },
-      "devDependencies": {
-        "@types/node": "^24.13.2",
-      },
-    },
     "packages/cdp-protocol": {
       "name": "@browseros/cdp-protocol",
       "version": "0.0.1",
@@ -572,8 +562,6 @@
     "@browseros/browser-core": ["@browseros/browser-core@workspace:packages/browser-core"],
 
     "@browseros/browser-mcp": ["@browseros/browser-mcp@workspace:packages/browser-mcp"],
-
-    "@browseros/build-tools": ["@browseros/build-tools@workspace:packages/build-tools"],
 
     "@browseros/cdp-protocol": ["@browseros/cdp-protocol@workspace:packages/cdp-protocol"],
 

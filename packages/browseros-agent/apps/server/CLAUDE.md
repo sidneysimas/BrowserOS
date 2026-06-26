@@ -56,5 +56,3 @@ apps/server/
 ## Release gate
 
 Server production resources must not package VM-only Lima resources. Keep `scripts/build/server/stage.test.ts` green: `scripts/build/config/server-prod-resources.json` should exclude `third_party/lima` and `resources/vm/` while still packaging Bun and DB migrations.
-
-If you change the BrowserOS VM template, keep `packages/build-tools/tests/vm-template.test.ts` green. The template is Lima/containerd-rootless based and must not depend on `podman`.

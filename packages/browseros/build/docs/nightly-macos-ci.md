@@ -1,9 +1,9 @@
 # Nightly macOS CI
 
 This workflow builds signed BrowserOS macOS arm64 DMGs on the dedicated Mac Mini.
-It runs nightly, can be triggered manually from any branch, bumps build versions,
-uploads the DMG to the Actions run, and leaves build lifecycle Slack updates to
-the existing BrowserOS build notifier.
+It runs nightly at 04:00 UTC, can be triggered manually from any branch, bumps
+build versions, uploads the DMG to the Actions run, and leaves build lifecycle
+Slack updates to the existing BrowserOS build notifier.
 
 ## What It Builds
 
@@ -89,10 +89,13 @@ Add these in GitHub repo settings under Actions variables:
 
 The workflow calls `build/scripts/bump_version.py`.
 
-- Nightly schedule: `offset+build`, commit and push enabled, R2 upload enabled
+- Nightly schedule: 04:00 UTC, `offset+build`, commit and push enabled, R2 upload enabled
 - Manual dispatch default: `offset+build`, commit disabled, R2 upload enabled
 - Manual hotfix option: choose `offset+patch`
 - Manual dry run option: choose `none`
+
+04:00 UTC is 9 PM US Pacific during daylight saving time. GitHub cron schedules
+are UTC-only and do not track daylight saving changes.
 
 `BROWSEROS_BUILD_OFFSET` is the internal Chromium-build monotonic counter.
 `BROWSEROS_BUILD` advances the public nightly semantic version. `BROWSEROS_PATCH`
@@ -111,6 +114,8 @@ squash merge, then auto-merge, and leaves the PR open if GitHub will not merge i
 yet. The persistent clone must already have credentials that can push bot
 branches. The workflow's `GITHUB_TOKEN` has `contents: write` and
 `pull-requests: write` for the build job so it can create and merge those PRs.
+The reusable server release job also receives `pull-requests: read`, matching the
+permission requested by `.github/workflows/release-server.yml`.
 
 ## Manual Branch Build
 

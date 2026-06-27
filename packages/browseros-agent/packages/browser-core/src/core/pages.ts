@@ -32,6 +32,7 @@ type WindowInfo = {
 
 export interface PageSession {
   targetId: string
+  sessionId: string
   session: ProtocolApi
   url: string
 }
@@ -124,6 +125,7 @@ export class PageManager {
     const sessionId = await this.attach(info.targetId, pageId)
     return {
       targetId: info.targetId,
+      sessionId,
       session: this.cdp.session(sessionId),
       url: info.url,
     }
@@ -156,6 +158,7 @@ export class PageManager {
     const sessionId = await this.attach(tab.targetId, pageId)
     return {
       targetId: tab.targetId,
+      sessionId,
       session: this.cdp.session(sessionId),
       url: tab.url,
     }

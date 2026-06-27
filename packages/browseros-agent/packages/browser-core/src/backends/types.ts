@@ -7,6 +7,16 @@ export interface CdpBackend extends ProtocolApi {
   connectionEpoch(): number
   getTargets(): Promise<CdpTarget[]>
   session(sessionId: string): ProtocolApi
+  rawSend(
+    method: string,
+    params?: Record<string, unknown>,
+    sessionId?: string,
+  ): Promise<unknown>
+  rawSendJson(
+    method: string,
+    paramsJson: string,
+    sessionId?: string,
+  ): Promise<unknown>
   onSessionEvent(
     event: string,
     handler: (params: unknown, sessionId: string) => void,

@@ -77,18 +77,26 @@ export class BrowserSession {
     params?: Record<string, unknown>,
     sessionId?: string,
   ): Promise<unknown> {
-    const api = sessionId ? this.connection.session(sessionId) : this.connection
-    const [domain, command] = method.split('.')
-    const target = (
-      api as unknown as Record<
-        string,
-        Record<string, (p?: unknown) => Promise<unknown>>
-      >
-    )[domain]
-    if (!target?.[command]) {
-      throw new Error(`Unknown CDP method "${method}"`)
-    }
-    return target[command](params ?? {})
+    return this.connection.rawSend(method, params ?? {}, sessionId)
+  }
+
+  /** Raw CDP escape hatch that sends already-validated JSON params verbatim. */
+  async cdpJson(
+    method: string,
+    paramsJson: string,
+    sessionId?: string,
+  ): Promise<unknown> {
+    return this.connection.rawSendJson(method, paramsJson, sessionId)
+  }
+
+  /** Page-scoped raw CDP for CLI/run callers that start from a BrowserOS page id. */
+  async cdpJsonForPage(
+    pageId: number,
+    method: string,
+    paramsJson: string,
+  ): Promise<unknown> {
+    const { sessionId } = await this.pages.getSession(pageId)
+    return this.connection.rawSendJson(method, paramsJson, sessionId)
   }
 
   isConnected(): boolean {

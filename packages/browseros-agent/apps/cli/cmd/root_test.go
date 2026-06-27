@@ -189,6 +189,36 @@ func TestDiffCommandShape(t *testing.T) {
 	}
 }
 
+func TestRawCDPCommandShape(t *testing.T) {
+	cmd, _, err := rootCmd.Find([]string{"cdp"})
+	if err != nil {
+		t.Fatalf("rootCmd.Find(cdp) error = %v", err)
+	}
+	if cmd.Name() != "cdp" {
+		t.Fatalf("command name = %q, want cdp", cmd.Name())
+	}
+	if got := cmd.Annotations["group"]; got != "Raw:" {
+		t.Fatalf("cdp group = %q, want Raw:", got)
+	}
+	if err := cmd.Args(cmd, []string{"Runtime.evaluate", `{"returnByValue":true}`}); err != nil {
+		t.Fatalf("cdp Args rejected valid args: %v", err)
+	}
+	if err := cmd.Args(cmd, []string{"Runtime.evaluate"}); err == nil {
+		t.Fatal("cdp Args accepted missing json params")
+	}
+}
+
+func TestGroupedHelpShowsRawGroup(t *testing.T) {
+	help := groupedHelp(rootCmd)
+	rawIndex := strings.Index(help, "Raw:")
+	if rawIndex < 0 {
+		t.Fatalf("groupedHelp missing Raw group:\n%s", help)
+	}
+	if !strings.Contains(help[rawIndex:], "cdp") {
+		t.Fatalf("Raw group missing cdp command:\n%s", help)
+	}
+}
+
 func TestTabsCommandShape(t *testing.T) {
 	cmd, _, err := rootCmd.Find([]string{"tabs"})
 	if err != nil {

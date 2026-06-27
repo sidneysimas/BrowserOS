@@ -10,6 +10,16 @@ export type FrameId = string
  */
 export interface CdpConnection extends ProtocolApi {
   session(sessionId: SessionId): ProtocolApi
+  rawSend(
+    method: string,
+    params?: Record<string, unknown>,
+    sessionId?: SessionId,
+  ): Promise<unknown>
+  rawSendJson(
+    method: string,
+    paramsJson: string,
+    sessionId?: SessionId,
+  ): Promise<unknown>
   isConnected(): boolean
   connectionEpoch(): number
 }

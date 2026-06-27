@@ -17,6 +17,7 @@ Available as \`browser\`:
   browser.input(pageId).click(ref) / fill(ref,value) / type(text) / press(key) / hover(ref) / selectOption(ref,value) / scroll(dir,amount,ref?)
   browser.nav(pageId).goto(url) / back() / forward() / reload()
   browser.cdp(method, params?, sessionId?)   // raw CDP escape hatch
+  browser.cdpJsonForPage(pageId, method, paramsJson) // page-scoped raw CDP with validated JSON params
 Refs (eN) come from a snapshot's text/refs.`
 
 interface RunOutcome {

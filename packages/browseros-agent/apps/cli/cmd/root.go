@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"browseros-cli/analytics"
+	"browseros-cli/cmd/raw"
 	"browseros-cli/config"
 	"browseros-cli/mcp"
 	"browseros-cli/output"
@@ -65,6 +66,7 @@ var groupOrder = []string{
 	"Navigate:",
 	"Observe:",
 	"Input:",
+	"Raw:",
 	"Resources:",
 	"Integrations:",
 	"Setup:",
@@ -193,6 +195,17 @@ func init() {
 	rootCmd.Flags().BoolVar(&showLLMTxt, "llm-txt", false, "Print the agent usage guide and exit")
 
 	rootCmd.Version = version
+	raw.Register(rootCmd, raw.Deps{
+		NewClient: func() raw.Client {
+			return newClient()
+		},
+		ResolvePageID: func() (int, error) {
+			return resolvePageID(nil)
+		},
+		JSONOutput: func() bool {
+			return jsonOut
+		},
+	})
 }
 
 func newClient() *mcp.Client {

@@ -395,9 +395,26 @@ class CdpBackend implements ICdpBackend {
     }))
   }
 
-  private async rawSend(
+  async rawSend(
     method: string,
     params?: Record<string, unknown>,
+    sessionId?: string,
+  ): Promise<unknown> {
+    return this.sendRawMessage(method, params ?? {}, sessionId)
+  }
+
+  async rawSendJson(
+    method: string,
+    paramsJson: string,
+    sessionId?: string,
+  ): Promise<unknown> {
+    JSON.parse(paramsJson)
+    return this.sendRawMessage(method, paramsJson, sessionId)
+  }
+
+  private async sendRawMessage(
+    method: string,
+    params: Record<string, unknown> | string,
     sessionId?: string,
   ): Promise<unknown> {
     if (!this.ws || !this.connected) {
@@ -405,14 +422,15 @@ class CdpBackend implements ICdpBackend {
     }
 
     const id = ++this.messageId
-    const message: Record<string, unknown> = {
-      id,
-      method,
-      params: params ?? {},
-    }
-    if (sessionId) {
-      message.sessionId = sessionId
-    }
+    const messageJson =
+      typeof params === 'string'
+        ? this.rawMessageJson(id, method, params, sessionId)
+        : JSON.stringify({
+            id,
+            method,
+            params,
+            ...(sessionId && { sessionId }),
+          })
 
     const ws = this.ws
     return new Promise<unknown>((resolve, reject) => {
@@ -424,7 +442,7 @@ class CdpBackend implements ICdpBackend {
       this.pending.set(id, { resolve, reject, timer })
 
       try {
-        ws.send(JSON.stringify(message))
+        ws.send(messageJson)
       } catch (err) {
         clearTimeout(timer)
         this.pending.delete(id)
@@ -435,6 +453,21 @@ class CdpBackend implements ICdpBackend {
         this.handleDeadConnection()
       }
     })
+  }
+
+  private rawMessageJson(
+    id: number,
+    method: string,
+    paramsJson: string,
+    sessionId?: string,
+  ): string {
+    const fields = [
+      `"id":${id}`,
+      `"method":${JSON.stringify(method)}`,
+      `"params":${paramsJson}`,
+    ]
+    if (sessionId) fields.push(`"sessionId":${JSON.stringify(sessionId)}`)
+    return `{${fields.join(',')}}`
   }
 
   private rawOn(event: string, handler: (params: unknown) => void): () => void {

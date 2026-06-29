@@ -164,7 +164,7 @@ func runWatch(cmd *cobra.Command, args []string) error {
 	var procs []*proc.ManagedProc
 
 	if watchClaw {
-		procs = startClawWatch(ctx, &wg, root, env, p, reservations)
+		procs = startClawWatch(ctx, &wg, root, env, p, reservations, userDataDir)
 	} else {
 		procs, err = startBrowserOSWatch(ctx, &wg, root, env, p, reservations, userDataDir, watchManual)
 		if err != nil {
@@ -225,7 +225,6 @@ func resolveWatchDefaultPorts(root string, claw bool) (proc.Ports, error) {
 func buildClawWatchEnv(env []string, p proc.Ports) []string {
 	apiURL := fmt.Sprintf("http://127.0.0.1:%d", p.Server)
 	return append(env,
-		fmt.Sprintf("CLAW_SERVER_PORT=%d", p.Server),
 		fmt.Sprintf("BROWSEROS_CLAW_CDP_PORT=%d", p.CDP),
 		fmt.Sprintf("VITE_BROWSEROS_CLAW_API_URL=%s", apiURL),
 	)
@@ -269,6 +268,7 @@ func startBrowserOSWatch(ctx context.Context, wg *sync.WaitGroup, root string, e
 
 	waitForCDP(ctx, p.CDP)
 
+	sidecarPath := watchSidecarConfigPath(userDataDir, "browseros-server")
 	reservations.ReleaseServer()
 	reservations.ReleaseExtension()
 	procs = append(procs, proc.StartManaged(ctx, wg, proc.ProcConfig{
@@ -276,8 +276,11 @@ func startBrowserOSWatch(ctx context.Context, wg *sync.WaitGroup, root string, e
 		Dir:     filepath.Join(root, "apps/server"),
 		Env:     env,
 		Restart: true,
-		Cmd:     []string{"bun", "--watch", "--env-file=.env.development", "src/index.ts"},
+		Cmd:     []string{"bun", "--watch", "--env-file=.env.development", "src/index.ts", "--config", sidecarPath},
 		BeforeStart: func() error {
+			if err := writeServerSidecarConfig(sidecarPath, root, userDataDir, p); err != nil {
+				return err
+			}
 			return proc.KillPortAndWait(p.Server, 3*time.Second)
 		},
 	}))
@@ -285,7 +288,7 @@ func startBrowserOSWatch(ctx context.Context, wg *sync.WaitGroup, root string, e
 }
 
 // startClawWatch supervises the BrowserClaw UI plus standalone server.
-func startClawWatch(ctx context.Context, wg *sync.WaitGroup, root string, env []string, p proc.Ports, reservations *proc.PortReservations) []*proc.ManagedProc {
+func startClawWatch(ctx context.Context, wg *sync.WaitGroup, root string, env []string, p proc.Ports, reservations *proc.PortReservations, userDataDir string) []*proc.ManagedProc {
 	var procs []*proc.ManagedProc
 
 	reservations.ReleaseCDP()
@@ -299,6 +302,7 @@ func startClawWatch(ctx context.Context, wg *sync.WaitGroup, root string, env []
 
 	waitForCDP(ctx, p.CDP)
 
+	sidecarPath := watchSidecarConfigPath(userDataDir, "claw-server")
 	reservations.ReleaseServer()
 	reservations.ReleaseExtension()
 	procs = append(procs, proc.StartManaged(ctx, wg, proc.ProcConfig{
@@ -306,8 +310,11 @@ func startClawWatch(ctx context.Context, wg *sync.WaitGroup, root string, env []
 		Dir:     filepath.Join(root, "apps/claw-server"),
 		Env:     env,
 		Restart: true,
-		Cmd:     []string{"bun", "--watch", "--env-file=.env.development", "src/main.ts"},
+		Cmd:     []string{"bun", "--watch", "--env-file=.env.development", "src/main.ts", "--config", sidecarPath},
 		BeforeStart: func() error {
+			if err := writeServerSidecarConfig(sidecarPath, root, userDataDir, p); err != nil {
+				return err
+			}
 			return proc.KillPortAndWait(p.Server, 3*time.Second)
 		},
 	}))

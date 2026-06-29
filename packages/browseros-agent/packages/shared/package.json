@@ -57,6 +57,10 @@
       "types": "./src/schemas/browser-context.ts",
       "default": "./src/schemas/browser-context.ts"
     },
+    "./schemas/sidecar-config": {
+      "types": "./src/schemas/sidecar-config.ts",
+      "default": "./src/schemas/sidecar-config.ts"
+    },
     "./sentry/sanitize": {
       "types": "./src/sentry/sanitize.ts",
       "default": "./src/sentry/sanitize.ts"

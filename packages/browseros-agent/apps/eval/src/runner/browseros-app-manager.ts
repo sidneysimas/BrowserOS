@@ -6,7 +6,7 @@
  *   1. Kill ports
  *   2. Launch Chrome directly with per-worker user-data-dir and ports
  *   3. Wait for CDP
- *   4. Start server with port env vars
+ *   4. Start server with sidecar config
  *   5. Wait for server health
  *
  * Each worker gets isolated ports: base + workerIndex offset.
@@ -186,13 +186,38 @@ export class BrowserOSAppManager {
     }
     console.log(`  [W${this.workerIndex}] CDP ready`)
 
-    // --- Server Launch (matches start.ts createEnv + startServer) ---
+    const sidecarPath = join(this.tempDir, 'server-config.json')
+    writeFileSync(
+      sidecarPath,
+      `${JSON.stringify(
+        {
+          ports: {
+            server,
+            cdp,
+            proxy: server,
+          },
+          directories: {
+            resources: join(MONOREPO_ROOT, 'resources'),
+            execution: this.tempDir,
+          },
+          flags: {
+            allow_remote_in_mcp: false,
+          },
+          instance: {
+            client_id: '',
+            install_id: '',
+            browseros_version: '',
+            chromium_version: '',
+          },
+        },
+        null,
+        2,
+      )}\n`,
+    )
+
     const serverEnv = {
       ...process.env,
       NODE_ENV: 'development',
-      BROWSEROS_CDP_PORT: String(cdp),
-      BROWSEROS_SERVER_PORT: String(server),
-      BROWSEROS_EXTENSION_PORT: String(extension),
     }
 
     // Capture both stdout and stderr to a per-worker file so we can
@@ -213,11 +238,14 @@ export class BrowserOSAppManager {
     }
     this.serverLogFd = logFd
 
-    // `start:ci` skips `--watch` (no file-watcher overhead in CI). Falls back
-    // to the regular `start` script outside CI for the dev-watch experience.
-    const startScript = process.env.CI ? 'start:ci' : 'start'
     this.serverProc = spawn({
-      cmd: ['bun', 'run', '--filter', '@browseros/server', startScript],
+      cmd: [
+        'bun',
+        '--env-file=apps/server/.env.development',
+        'apps/server/src/index.ts',
+        '--config',
+        sidecarPath,
+      ],
       cwd: MONOREPO_ROOT,
       stdout: logFd,
       stderr: logFd,

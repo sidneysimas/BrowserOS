@@ -8,10 +8,13 @@ import {
   CLAW_CDP_PORT_DEFAULT,
 } from '../src/shared/port'
 
-async function writeConfig(contents: string): Promise<string> {
+async function writeConfig(contents: unknown): Promise<string> {
   const dir = await mkdtemp(join(tmpdir(), 'claw-config-'))
   const path = join(dir, 'config.json')
-  await writeFile(path, contents)
+  await writeFile(
+    path,
+    typeof contents === 'string' ? contents : JSON.stringify(contents),
+  )
   return path
 }
 
@@ -26,8 +29,9 @@ describe('loadClawConfig', () => {
   })
 
   test('loads the checked-in sample config', () => {
+    const samplePath = join(import.meta.dir, '..', 'config.sample.json')
     const result = loadClawConfig({
-      argv: ['--config', join(import.meta.dir, '..', 'config.sample.json')],
+      argv: ['--config', samplePath],
       cwd: '/',
       env: {},
     })
@@ -37,77 +41,83 @@ describe('loadClawConfig', () => {
       value: {
         port: CLAW_API_PORT_DEFAULT,
         cdpPort: CLAW_CDP_PORT_DEFAULT,
-        resourcesDir: '/resources',
+        resourcesDir: join(dirname(samplePath), 'resources'),
       },
     })
   })
 
-  test('uses standalone defaults when no env or config file is provided', () => {
-    const result = loadClawConfig({ argv: [], env: {}, cwd: '/' })
-
-    expect(result).toEqual({
-      ok: true,
-      value: {
-        port: CLAW_API_PORT_DEFAULT,
-        cdpPort: CLAW_CDP_PORT_DEFAULT,
-        resourcesDir: '/resources',
+  test('requires --config instead of defaulting from source runs or env', async () => {
+    const envConfigPath = await writeConfig({
+      ports: {
+        server: 9420,
+        cdp: 9020,
       },
     })
-  })
 
-  test('reads Claw-specific port env values', () => {
     const result = loadClawConfig({
       argv: [],
       cwd: '/',
       env: {
-        CLAW_SERVER_PORT: '9310',
-        BROWSEROS_CLAW_CDP_PORT: '9010',
+        CLAW_SERVER_PORT: '9420',
+        BROWSEROS_CLAW_CDP_PORT: '9020',
+        CLAW_CONFIG: envConfigPath,
       },
     })
 
     expect(result).toEqual({
-      ok: true,
-      value: {
-        port: 9310,
-        cdpPort: 9010,
-        resourcesDir: '/resources',
-      },
+      ok: false,
+      error: '--config is required',
     })
   })
 
-  test('reads Claw-specific resources dir env values', () => {
-    const result = loadClawConfig({
-      argv: [],
-      cwd: '/tmp/claw',
-      env: {
-        BROWSEROS_CLAW_RESOURCES_DIR: 'resources',
+  test('maps shared sidecar ports and resources into ClawConfig', async () => {
+    const configPath = await writeConfig({
+      ports: {
+        server: 9420,
+        cdp: 9020,
+        proxy: 9120,
+      },
+      directories: {
+        resources: '../resources',
+        execution: '../execution',
+      },
+      flags: {
+        allow_remote_in_mcp: true,
+      },
+      instance: {
+        client_id: 'client-123',
+        install_id: 'install-456',
       },
     })
 
-    expect(result).toEqual({
-      ok: true,
-      value: {
-        port: CLAW_API_PORT_DEFAULT,
-        cdpPort: CLAW_CDP_PORT_DEFAULT,
-        resourcesDir: '/tmp/claw/resources',
-      },
-    })
-  })
-
-  test('reads ports from a JSON config file', async () => {
-    const configPath = await writeConfig(
-      JSON.stringify({
-        ports: {
-          server: 9420,
-          cdp: 9020,
-        },
-      }),
-    )
-
     const result = loadClawConfig({
-      argv: [],
+      argv: ['bun', 'src/main.ts', '--config', configPath],
       cwd: '/',
-      env: { CLAW_CONFIG: configPath },
+      env: {},
+    })
+
+    expect(result).toEqual({
+      ok: true,
+      value: {
+        port: 9420,
+        cdpPort: 9020,
+        resourcesDir: join(dirname(configPath), '../resources'),
+      },
+    })
+  })
+
+  test('accepts standalone binary argv without a script path', async () => {
+    const configPath = await writeConfig({
+      ports: {
+        server: 9420,
+        cdp: 9020,
+      },
+    })
+
+    const result = loadClawConfig({
+      argv: ['/usr/bin/browseros-claw-server', '--config', configPath],
+      cwd: '/',
+      env: {},
     })
 
     expect(result).toEqual({
@@ -120,14 +130,53 @@ describe('loadClawConfig', () => {
     })
   })
 
-  test('reads resources dir from a JSON config file relative to the config', async () => {
-    const configPath = await writeConfig(
-      JSON.stringify({
-        directories: {
-          resources: '../resources',
-        },
-      }),
-    )
+  test('falls back to default resources when the sidecar omits directories.resources', async () => {
+    const configPath = await writeConfig({
+      ports: {
+        server: 9420,
+        cdp: 9020,
+      },
+    })
+
+    const result = loadClawConfig({
+      argv: ['--config', configPath],
+      cwd: '/service/workdir',
+      env: {},
+    })
+
+    expect(result).toEqual({
+      ok: true,
+      value: {
+        port: 9420,
+        cdpPort: 9020,
+        resourcesDir: '/service/workdir/resources',
+      },
+    })
+  })
+
+  test('tolerates unknown future and BrowserOS-only sidecar fields', async () => {
+    const configPath = await writeConfig({
+      future_top_level: true,
+      ports: {
+        server: '9420',
+        cdp: '9020',
+        proxy: 9120,
+        future_port: 1234,
+      },
+      directories: {
+        resources: 'resources',
+        execution: 'execution',
+        cache: 'cache',
+      },
+      flags: {
+        allow_remote_in_mcp: false,
+        future_flag: true,
+      },
+      instance: {
+        client_id: 'client-123',
+        browseros_version: '1.2.3',
+      },
+    })
 
     const result = loadClawConfig({
       argv: ['--config', configPath],
@@ -138,114 +187,48 @@ describe('loadClawConfig', () => {
     expect(result).toEqual({
       ok: true,
       value: {
-        port: CLAW_API_PORT_DEFAULT,
-        cdpPort: CLAW_CDP_PORT_DEFAULT,
-        resourcesDir: join(dirname(configPath), '../resources'),
+        port: 9420,
+        cdpPort: 9020,
+        resourcesDir: join(dirname(configPath), 'resources'),
       },
     })
   })
 
-  test('lets env ports override JSON config values', async () => {
-    const configPath = await writeConfig(
-      JSON.stringify({
-        ports: {
-          server: 9520,
-          cdp: 9120,
-        },
-      }),
-    )
-
-    const result = loadClawConfig({
-      argv: [],
-      cwd: '/',
-      env: {
-        CLAW_SERVER_PORT: '9310',
-        BROWSEROS_CLAW_CDP_PORT: '9010',
-        CLAW_CONFIG: configPath,
+  test('rejects old Claw config inputs', async () => {
+    const configPath = await writeConfig({
+      ports: {
+        server: 9420,
+        cdp: 9020,
       },
     })
 
-    expect(result).toEqual({
-      ok: true,
-      value: {
-        port: 9310,
-        cdpPort: 9010,
-        resourcesDir: '/resources',
-      },
-    })
-  })
-
-  test('--resources-dir overrides env and JSON config values', async () => {
-    const configPath = await writeConfig(
-      JSON.stringify({
-        directories: {
-          resources: 'config-resources',
-        },
-      }),
-    )
-
-    const result = loadClawConfig({
+    const resourcesResult = loadClawConfig({
       argv: ['--config', configPath, '--resources-dir', 'cli-resources'],
-      cwd: '/tmp/claw',
-      env: {
-        BROWSEROS_CLAW_RESOURCES_DIR: 'env-resources',
-      },
-    })
-
-    expect(result).toEqual({
-      ok: true,
-      value: {
-        port: CLAW_API_PORT_DEFAULT,
-        cdpPort: CLAW_CDP_PORT_DEFAULT,
-        resourcesDir: '/tmp/claw/cli-resources',
-      },
-    })
-  })
-
-  test('--config wins over CLAW_CONFIG for the config file path', async () => {
-    const envConfigPath = await writeConfig(
-      JSON.stringify({
-        ports: {
-          server: 9300,
-          cdp: 9000,
-        },
-      }),
-    )
-    const cliConfigPath = await writeConfig(
-      JSON.stringify({
-        ports: {
-          server: 9600,
-          cdp: 9200,
-        },
-      }),
-    )
-
-    const result = loadClawConfig({
-      argv: ['bun', 'src/main.ts', '--config', cliConfigPath],
-      cwd: '/',
-      env: { CLAW_CONFIG: envConfigPath },
-    })
-
-    expect(result).toEqual({
-      ok: true,
-      value: {
-        port: 9600,
-        cdpPort: 9200,
-        resourcesDir: '/resources',
-      },
-    })
-  })
-
-  test('rejects an explicitly empty --resources-dir value', () => {
-    const result = loadClawConfig({
-      argv: ['--resources-dir='],
       cwd: '/',
       env: {},
     })
+    expect(resourcesResult.ok).toBe(false)
+    if (!resourcesResult.ok) {
+      expect(resourcesResult.error).toContain('unknown option')
+      expect(resourcesResult.error).toContain('--resources-dir')
+    }
 
-    expect(result).toEqual({
-      ok: false,
-      error: '--resources-dir requires a path',
+    const envResult = loadClawConfig({
+      argv: ['--config', configPath],
+      cwd: '/',
+      env: {
+        CLAW_SERVER_PORT: '1',
+        BROWSEROS_CLAW_CDP_PORT: '2',
+        BROWSEROS_CLAW_RESOURCES_DIR: 'env-resources',
+      },
+    })
+    expect(envResult).toEqual({
+      ok: true,
+      value: {
+        port: 9420,
+        cdpPort: 9020,
+        resourcesDir: '/resources',
+      },
     })
   })
 
@@ -262,49 +245,35 @@ describe('loadClawConfig', () => {
     })
   })
 
-  test('rejects a blank --config value instead of falling back to CLAW_CONFIG', async () => {
-    const envConfigPath = await writeConfig(
-      JSON.stringify({
-        ports: {
-          server: 9300,
-        },
-      }),
-    )
-
-    const result = loadClawConfig({
-      argv: ['--config', '   '],
-      cwd: '/',
-      env: { CLAW_CONFIG: envConfigPath },
+  test('returns clear errors for missing required sidecar fields', async () => {
+    const configPath = await writeConfig({
+      ports: {
+        cdp: 9020,
+        http_mcp: 9420,
+        extension: 9300,
+      },
     })
 
-    expect(result).toEqual({
-      ok: false,
-      error: '--config requires a path',
-    })
-  })
-
-  test('returns a clear error for invalid env ports', () => {
     const result = loadClawConfig({
-      argv: [],
+      argv: ['--config', configPath],
       cwd: '/',
-      env: { CLAW_SERVER_PORT: 'abc' },
+      env: {},
     })
 
     expect(result.ok).toBe(false)
     if (!result.ok) {
-      expect(result.error).toContain('CLAW_SERVER_PORT')
-      expect(result.error).toContain('integer port between 1 and 65535')
+      expect(result.error).toContain('ports.server')
+      expect(result.error).not.toContain('http_mcp')
     }
   })
 
-  test('returns a clear error for invalid JSON ports', async () => {
-    const configPath = await writeConfig(
-      JSON.stringify({
-        ports: {
-          server: 70000,
-        },
-      }),
-    )
+  test('returns shared parser errors for invalid known JSON ports', async () => {
+    const configPath = await writeConfig({
+      ports: {
+        server: 70000,
+        cdp: 9020,
+      },
+    })
 
     const result = loadClawConfig({
       argv: ['--config', configPath],
@@ -319,74 +288,8 @@ describe('loadClawConfig', () => {
     }
   })
 
-  test('returns a clear error for unknown JSON port keys', async () => {
-    const configPath = await writeConfig(
-      JSON.stringify({
-        ports: {
-          cdpPort: 9020,
-        },
-      }),
-    )
-
-    const result = loadClawConfig({
-      argv: ['--config', configPath],
-      cwd: '/',
-      env: {},
-    })
-
-    expect(result.ok).toBe(false)
-    if (!result.ok) {
-      expect(result.error).toContain('ports')
-      expect(result.error).toContain('cdpPort')
-    }
-  })
-
-  test('returns a clear error for unknown JSON directory keys', async () => {
-    const configPath = await writeConfig(
-      JSON.stringify({
-        directories: {
-          data: './data',
-        },
-      }),
-    )
-
-    const result = loadClawConfig({
-      argv: ['--config', configPath],
-      cwd: '/',
-      env: {},
-    })
-
-    expect(result.ok).toBe(false)
-    if (!result.ok) {
-      expect(result.error).toContain('directories')
-      expect(result.error).toContain('data')
-    }
-  })
-
-  test('returns a clear error for unknown top-level JSON keys', async () => {
-    const configPath = await writeConfig(
-      JSON.stringify({
-        server_port: 9200,
-        cdp_port: 49337,
-      }),
-    )
-
-    const result = loadClawConfig({
-      argv: ['--config', configPath],
-      cwd: '/',
-      env: {},
-    })
-
-    expect(result.ok).toBe(false)
-    if (!result.ok) {
-      expect(result.error).toContain('config')
-      expect(result.error).toContain('server_port')
-      expect(result.error).toContain('cdp_port')
-    }
-  })
-
-  test('returns a clear error for malformed JSON', async () => {
-    const configPath = await writeConfig(`
+  test('returns clear errors for malformed and missing config files', async () => {
+    const malformedPath = await writeConfig(`
 {
   "ports": {
     "server": 9200,
@@ -394,29 +297,25 @@ describe('loadClawConfig', () => {
 }
 `)
 
-    const result = loadClawConfig({
-      argv: ['--config', configPath],
+    const malformed = loadClawConfig({
+      argv: ['--config', malformedPath],
       cwd: '/',
       env: {},
     })
-
-    expect(result.ok).toBe(false)
-    if (!result.ok) {
-      expect(result.error).toContain('Config file error:')
-      expect(result.error).toContain('JSON')
+    expect(malformed.ok).toBe(false)
+    if (!malformed.ok) {
+      expect(malformed.error).toContain('Sidecar config file error')
+      expect(malformed.error).toContain('JSON')
     }
-  })
 
-  test('returns a clear error for a missing config file', () => {
-    const result = loadClawConfig({
+    const missing = loadClawConfig({
       argv: ['--config', '/missing/claw.json'],
       cwd: '/',
       env: {},
     })
-
-    expect(result).toEqual({
+    expect(missing).toEqual({
       ok: false,
-      error: 'Config file not found: /missing/claw.json',
+      error: 'Sidecar config file not found: /missing/claw.json',
     })
   })
 })

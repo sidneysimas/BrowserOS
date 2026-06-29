@@ -125,8 +125,8 @@ apps/server/
 # Copy environment files
 cp .env.example .env.development
 
-# Start the server (with hot reload)
-bun run start
+# Start the server directly (dev:watch generates this config automatically)
+bun --env-file=.env.development src/index.ts --config ../../config.dev.json
 ```
 
 See the [agent monorepo README](../../README.md) for full environment variable reference and `dev:watch` setup.
@@ -166,10 +166,6 @@ The release workflow validates that the tag version matches `apps/server/package
 
 The workflow-call and nightly paths can still build/upload server artifacts without publishing a GitHub Release by setting `publish_github_release=false`; that preserves the existing `bump_server_version.py` flow for target-specific builds.
 
-## Ports
+## Sidecar Config
 
-| Port | Env Variable | Purpose |
-|------|-------------|---------|
-| 9100 | `BROWSEROS_SERVER_PORT` | HTTP server (MCP, chat, health) |
-| 9000 | `BROWSEROS_CDP_PORT` | Chromium CDP (server connects as client) |
-| 9300 | `BROWSEROS_EXTENSION_PORT` | Legacy BrowserOS launch arg kept for compatibility |
+`--config <path>` is the only server startup config input. The JSON sidecar carries `ports.server`, `ports.cdp`, `ports.proxy`, `directories.resources`, `directories.execution`, and optional `instance.*` metadata. Dev, dogfood, eval, and Chromium-managed launches generate this file before starting the binary.

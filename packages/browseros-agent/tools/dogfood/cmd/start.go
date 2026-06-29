@@ -270,6 +270,10 @@ func startEnvironment(parent context.Context, cfg config.Config, agentRoot strin
 	}
 	runtimeEnv := serverRuntimeEnv(os.Environ(), cfg)
 	serverDir := filepath.Join(agentRoot, "apps/server")
+	sidecarPath := dogfoodSidecarConfigPath(cfg)
+	if err := writeDogfoodSidecarConfig(sidecarPath, cfg, agentRoot); err != nil {
+		return nil, fmt.Errorf("write server config: %w", err)
+	}
 	reportProgress(opts, "starting server")
 	e.managed = append(e.managed, proc.StartManaged(ctx, &e.wg, proc.ProcConfig{
 		Tag:         proc.TagServer,
@@ -277,7 +281,7 @@ func startEnvironment(parent context.Context, cfg config.Config, agentRoot strin
 		Env:         runtimeEnv,
 		Restart:     true,
 		LogPath:     cfg.LogPath(serverLogName),
-		Cmd:         serverCommand(),
+		Cmd:         serverCommand(sidecarPath),
 		LineHandler: opts.LineHandler,
 	}))
 	printSummary(cfg, agentRoot)
@@ -310,12 +314,12 @@ func (e *environment) ForceKill() {
 	}
 }
 
-func serverCommand() []string {
-	return []string{"bun", "--env-file=.env.development", "src/index.ts"}
+func serverCommand(configPath string) []string {
+	return []string{"bun", "--env-file=.env.development", "src/index.ts", "--config", configPath}
 }
 
 func serverRuntimeEnv(base []string, cfg config.Config) []string {
-	env := make([]string, 0, len(base)+6)
+	env := make([]string, 0, len(base)+2)
 	for _, entry := range base {
 		if strings.HasPrefix(entry, "BROWSEROS_DIR=") {
 			continue
@@ -325,9 +329,6 @@ func serverRuntimeEnv(base []string, cfg config.Config) []string {
 	return append(env,
 		"NODE_ENV=development",
 		fmt.Sprintf("BROWSEROS_DIR=%s", cfg.BrowserOSDir),
-		fmt.Sprintf("BROWSEROS_CDP_PORT=%d", cfg.Ports.CDP),
-		fmt.Sprintf("BROWSEROS_SERVER_PORT=%d", cfg.Ports.Server),
-		fmt.Sprintf("BROWSEROS_EXTENSION_PORT=%d", cfg.Ports.Extension),
 	)
 }
 

@@ -11,7 +11,7 @@
  * - Replaced with literal strings in production builds
  * - Read from actual env vars during development
  *
- * For runtime-only env vars (like BROWSEROS_CDP_PORT), use process.env directly.
+ * Runtime-only feature toggles should be read at their feature boundary.
  */
 
 export const INLINED_ENV = {

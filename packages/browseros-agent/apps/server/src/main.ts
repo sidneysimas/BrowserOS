@@ -55,7 +55,7 @@ export class Application {
     await this.initCoreServices()
 
     if (!this.config.cdpPort) {
-      logger.error('CDP port is required (--cdp-port)')
+      logger.error('CDP port is required in the sidecar config')
       process.exit(EXIT_CODES.GENERAL_ERROR)
     }
 
@@ -198,8 +198,7 @@ export class Application {
       // produce zero analytics.
       logger.warn(
         'Metrics will skip events: no instance identity. ' +
-          'Set BROWSEROS_CLIENT_ID or BROWSEROS_INSTALL_ID (env) or ' +
-          'instance.client_id / instance.install_id (config) to opt in.',
+          'Set instance.client_id or instance.install_id in the sidecar config to opt in.',
       )
     }
 

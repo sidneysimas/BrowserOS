@@ -9,8 +9,8 @@ import (
 )
 
 func TestServerCommandDoesNotWatchFiles(t *testing.T) {
-	got := serverCommand()
-	want := []string{"bun", "--env-file=.env.development", "src/index.ts"}
+	got := serverCommand("/tmp/server-config.json")
+	want := []string{"bun", "--env-file=.env.development", "src/index.ts", "--config", "/tmp/server-config.json"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("server command got %#v want %#v", got, want)
 	}
@@ -37,6 +37,9 @@ func TestServerRuntimeEnvSetsBrowserOSDir(t *testing.T) {
 	})
 
 	assertEnvContains(t, got, "BROWSEROS_DIR=/tmp/browseros-dogfood")
+	assertEnvMissingPrefix(t, got, "BROWSEROS_CDP_PORT=")
+	assertEnvMissingPrefix(t, got, "BROWSEROS_SERVER_PORT=")
+	assertEnvMissingPrefix(t, got, "BROWSEROS_EXTENSION_PORT=")
 }
 
 func TestServerRuntimeEnvOverridesInheritedBrowserOSDir(t *testing.T) {
@@ -62,4 +65,13 @@ func assertEnvContains(t *testing.T, env []string, want string) {
 		}
 	}
 	t.Fatalf("env missing %q: %#v", want, env)
+}
+
+func assertEnvMissingPrefix(t *testing.T, env []string, prefix string) {
+	t.Helper()
+	for _, entry := range env {
+		if strings.HasPrefix(entry, prefix) {
+			t.Fatalf("env unexpectedly contains %q: %#v", prefix, env)
+		}
+	}
 }

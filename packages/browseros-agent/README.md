@@ -63,11 +63,11 @@ packages/
 
 ### Ports
 
-| Port | Env Variable | Purpose |
-|------|--------------|---------|
-| 9100 | `BROWSEROS_SERVER_PORT` | HTTP server - MCP endpoints, agent chat, health |
-| 9000 | `BROWSEROS_CDP_PORT` | Chromium CDP server (BrowserOS Server connects as client) |
-| 9300 | `BROWSEROS_EXTENSION_PORT` | Legacy BrowserOS launch arg kept for compatibility; not used by the server |
+| Port | Sidecar Field | Purpose |
+|------|---------------|---------|
+| 9100 | `ports.server` | HTTP server - MCP endpoints, agent chat, health |
+| 9000 | `ports.cdp` | Chromium CDP server (BrowserOS Server connects as client) |
+| 9100 | `ports.proxy` | Browser proxy port emitted by Chromium for managed sidecars |
 
 ## Development
 
@@ -92,20 +92,28 @@ bun run dev:watch
 
 Runtime uses `.env.development`, while production artifact builds use `.env.production`:
 
-- `apps/server/.env.development` - Server runtime configuration for local dev
+- `apps/server/.env.development` - Server env that is not sidecar startup config
 - `apps/server/.env.production` - Server production artifact build configuration
 - `apps/app/.env.development` - App UI configuration
 
-**Server Variables** (`apps/server/.env.development`)
+**Server Sidecar Config** (`--config <path>`)
+
+The server and Claw server read startup ports, resource directories, execution directories, and instance metadata from a sidecar JSON file. `tools/dev`, dogfood, eval, and Chromium-managed sidecar launches generate this file and pass it with `--config`.
+
+| Field | Description |
+|-------|-------------|
+| `ports.server` | HTTP server port (MCP, chat, health) |
+| `ports.cdp` | Chromium CDP port (server connects as client) |
+| `ports.proxy` | Browser proxy port emitted by Chromium |
+| `directories.resources` | Packaged resources root |
+| `directories.execution` | Runtime execution/log/config directory |
+| `instance.*` | Optional browser/client metadata |
+
+**Server Env Variables** (`apps/server/.env.development`)
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `BROWSEROS_SERVER_PORT` | 9100 | HTTP server port (MCP, chat, health) |
-| `BROWSEROS_CDP_PORT` | 9000 | Chromium CDP port (server connects as client) |
-| `BROWSEROS_EXTENSION_PORT` | 9300 | Legacy BrowserOS launch arg kept for compatibility |
 | `BROWSEROS_CONFIG_URL` | - | Remote config endpoint for rate limits |
-| `BROWSEROS_INSTALL_ID` | - | Unique installation identifier (analytics) |
-| `BROWSEROS_CLIENT_ID` | - | Client identifier (analytics) |
 | `POSTHOG_API_KEY` | - | Server-side PostHog API key |
 | `SENTRY_DSN` | - | Server-side Sentry DSN |
 | `BROWSEROS_TEST_HEADLESS` | false | Headless mode for server tests |
@@ -131,22 +139,19 @@ Copy from `apps/server/.env.production.example` before running `build:server`.
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `BROWSEROS_SERVER_PORT` | 9100 | Passed to BrowserOS via CLI args |
-| `BROWSEROS_CDP_PORT` | 9000 | Passed to BrowserOS via CLI args |
+| `BROWSEROS_SERVER_PORT` | 9100 | Passed to BrowserOS browser launch flags |
+| `BROWSEROS_CDP_PORT` | 9000 | Passed to BrowserOS browser launch flags |
 | `BROWSEROS_EXTENSION_PORT` | 9300 | Legacy BrowserOS CLI arg still passed for compatibility |
 | `BROWSEROS_BINARY` | - | Path to BrowserOS binary |
 | `USE_BROWSEROS_BINARY` | true | Use BrowserOS instead of default Chrome |
 | `VITE_PUBLIC_POSTHOG_KEY` | - | Agent UI PostHog key |
 | `VITE_PUBLIC_SENTRY_DSN` | - | Agent UI Sentry DSN |
-
-> **Note:** Port variables are duplicated in both files and must be kept in sync when running server and agent together.
-
 ### Commands
 
 ```bash
 # Start
-bun run start:server          # Start the server
-bun run start:agent           # Start agent extension (dev mode)
+bun run dev:watch             # Start server and app with generated sidecar config
+cd apps/server && bun --env-file=.env.development src/index.ts --config ../../config.dev.json
 
 # Build
 bun run build                 # Build server and agent

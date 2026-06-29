@@ -50,7 +50,7 @@ apps/server/
 - MCP tool registration flows through `src/tools/registry.ts` and the tool implementation folders. Keep tool names, labels, schemas, and responses in sync.
 - CDP-backed browser behavior lives under `src/browser/` and `src/browser/core/`; tools should use that layer instead of speaking raw CDP when a local abstraction exists.
 - Agent behavior lives under `src/agent/` and uses the AI SDK provider/tool loop. External MCP clients are per-session and built through `mcp-builder.ts`.
-- CDP is required at runtime: pass `--cdp-port` or set `BROWSEROS_CDP_PORT`.
+- CDP and server ports are required in the sidecar JSON passed through `--config`.
 - Tests live under `apps/server/tests/`; use the closest group runner before broad suites.
 
 ## Release gate

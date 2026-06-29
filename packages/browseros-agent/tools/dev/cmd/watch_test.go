@@ -70,13 +70,15 @@ func TestBuildClawWatchEnvIncludesSelectedPorts(t *testing.T) {
 
 	for _, want := range []string{
 		"BASE=1",
-		"CLAW_SERVER_PORT=9123",
 		"BROWSEROS_CLAW_CDP_PORT=9012",
 		"VITE_BROWSEROS_CLAW_API_URL=http://127.0.0.1:9123",
 	} {
 		if !hasEnvEntry(env, want) {
 			t.Fatalf("expected env to contain %q, got %#v", want, env)
 		}
+	}
+	if hasEnvEntry(env, "CLAW_SERVER_PORT=9123") {
+		t.Fatalf("claw server port should be passed through sidecar config, got %#v", env)
 	}
 }
 

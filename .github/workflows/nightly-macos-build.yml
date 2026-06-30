@@ -23,10 +23,6 @@ on:
         description: Publish build to R2/CDN after packaging
         type: boolean
         default: true
-      release_server:
-        description: Build and upload server artifacts before packaging
-        type: boolean
-        default: true
 
 permissions:
   contents: read
@@ -43,8 +39,6 @@ jobs:
       bump_mode: ${{ steps.workflow_inputs.outputs.bump_mode }}
       commit_version: ${{ steps.workflow_inputs.outputs.commit_version }}
       upload_to_r2: ${{ steps.workflow_inputs.outputs.upload_to_r2 }}
-      release_server: ${{ steps.workflow_inputs.outputs.release_server }}
-      server_version: ${{ steps.server_version.outputs.server_version }}
     steps:
       - name: Resolve workflow inputs
         id: workflow_inputs
@@ -52,11 +46,9 @@ jobs:
           EVENT_NAME: ${{ github.event_name }}
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
           NIGHTLY_REF: ${{ vars.BROWSEROS_NIGHTLY_REF }}
-          NIGHTLY_RELEASE_SERVER: ${{ vars.BROWSEROS_NIGHTLY_RELEASE_SERVER }}
           DISPATCH_BUMP: ${{ inputs.bump }}
           DISPATCH_COMMIT_VERSION: ${{ inputs.commit_version }}
           DISPATCH_UPLOAD_TO_R2: ${{ inputs.upload_to_r2 }}
-          DISPATCH_RELEASE_SERVER: ${{ inputs.release_server }}
           DISPATCH_REF: ${{ github.ref_name }}
         run: |
           set -euo pipefail
@@ -66,31 +58,11 @@ jobs:
             bump_mode="offset+build"
             commit_version="true"
             upload_to_r2="true"
-            release_server="${NIGHTLY_RELEASE_SERVER:-auto}"
           else
             target_ref="$DISPATCH_REF"
             bump_mode="${DISPATCH_BUMP:-offset+build}"
             commit_version="${DISPATCH_COMMIT_VERSION:-false}"
             upload_to_r2="${DISPATCH_UPLOAD_TO_R2:-true}"
-            release_server="${DISPATCH_RELEASE_SERVER:-true}"
-          fi
-
-          if [ "$release_server" = "auto" ]; then
-            if [ "$target_ref" = "$DEFAULT_BRANCH" ]; then
-              release_server="true"
-            else
-              release_server="false"
-            fi
-          fi
-
-          if [ "$release_server" != "true" ] && [ "$release_server" != "false" ]; then
-            echo "::error::release_server must be true, false, or auto (got $release_server)"
-            exit 1
-          fi
-
-          if [ "$release_server" = "true" ] && [ "$target_ref" != "$DEFAULT_BRANCH" ]; then
-            echo "::error::Server release publishes to global R2 latest and is only allowed for $DEFAULT_BRANCH. Disable release_server for branch-only macOS builds."
-            exit 1
           fi
 
           {
@@ -98,25 +70,7 @@ jobs:
             echo "bump_mode=$bump_mode"
             echo "commit_version=$commit_version"
             echo "upload_to_r2=$upload_to_r2"
-            echo "release_server=$release_server"
           } >> "$GITHUB_OUTPUT"
-
-      - uses: actions/checkout@v7
-        with:
-          ref: ${{ steps.workflow_inputs.outputs.target_ref }}
-
-      - name: Read server package version
-        id: server_version
-        run: |
-          set -euo pipefail
-          python3 - <<'PY' >> "$GITHUB_OUTPUT"
-          import json
-          from pathlib import Path
-
-          package_json = Path("packages/browseros-agent/apps/server/package.json")
-          version = json.loads(package_json.read_text())["version"]
-          print(f"server_version={version}")
-          PY
 
   authorize_manual_dispatch:
     if: github.event_name == 'workflow_dispatch'
@@ -125,31 +79,12 @@ jobs:
     steps:
       - run: echo "Manual dispatch approved through release-core."
 
-  release_server:
+  build:
     needs: [authorize_manual_dispatch, resolve_inputs]
     if: |
       always() &&
       needs.resolve_inputs.result == 'success' &&
-      needs.resolve_inputs.outputs.release_server == 'true' &&
       (github.event_name == 'schedule' || needs.authorize_manual_dispatch.result == 'success')
-    permissions:
-      contents: write
-      pull-requests: read
-    uses: ./.github/workflows/release-server.yml
-    with:
-      version: ${{ needs.resolve_inputs.outputs.server_version }}
-      apply_bump: ${{ needs.resolve_inputs.outputs.bump_mode != 'none' }}
-      targets: darwin-arm64
-      publish_github_release: false
-    secrets: inherit
-
-  build:
-    needs: [authorize_manual_dispatch, resolve_inputs, release_server]
-    if: |
-      always() &&
-      needs.resolve_inputs.result == 'success' &&
-      (github.event_name == 'schedule' || needs.authorize_manual_dispatch.result == 'success') &&
-      (needs.resolve_inputs.outputs.release_server != 'true' || needs.release_server.result == 'success')
     runs-on: [self-hosted, macOS, ARM64, browseros-builder]
     permissions:
       contents: write
@@ -233,24 +168,12 @@ jobs:
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "Built version: $version"
 
-      - name: Apply server version bump
-        if: ${{ needs.resolve_inputs.outputs.release_server == 'true' && needs.release_server.outputs.server_version != '' }}
-        env:
-          BROWSEROS_REPO: ${{ steps.build_inputs.outputs.browseros_repo }}
-          SERVER_VERSION: ${{ needs.release_server.outputs.server_version }}
-        run: |
-          set -euo pipefail
-          cd "$BROWSEROS_REPO/packages/browseros"
-          uv run python build/scripts/bump_server_version.py --set "$SERVER_VERSION"
-          echo "Applied server version $SERVER_VERSION to the build working tree"
-
       - name: Commit version bump via pull request
         if: ${{ steps.build_inputs.outputs.commit_version == 'true' }}
         env:
           BROWSEROS_REPO: ${{ steps.build_inputs.outputs.browseros_repo }}
           TARGET_REF: ${{ steps.build_inputs.outputs.target_ref }}
           VERSION: ${{ steps.bump.outputs.version }}
-          RELEASE_SERVER: ${{ needs.resolve_inputs.outputs.release_server }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_REPOSITORY: ${{ github.repository }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
@@ -261,14 +184,6 @@ jobs:
             packages/browseros/resources/BROWSEROS_VERSION
             packages/browseros/build/config/BROWSEROS_BUILD_OFFSET
           )
-          # When the server was released this run, fold its bumped version into the
-          # same PR so the browser and server versions land together.
-          if [ "$RELEASE_SERVER" = "true" ]; then
-            version_files+=(
-              packages/browseros-agent/apps/server/package.json
-              packages/browseros-agent/bun.lock
-            )
-          fi
           git add "${version_files[@]}"
           if git diff --cached --quiet; then
             echo "No version changes to commit."
@@ -346,6 +261,54 @@ jobs:
             echo "::warning::Could not merge or enable auto-merge for version bump PR; leaving it open: $pr_url"
           fi
 
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.6"
+
+      - name: Stage server resources for packaging
+        env:
+          BROWSEROS_REPO: ${{ steps.build_inputs.outputs.browseros_repo }}
+        run: |
+          set -euo pipefail
+          agent_root="$BROWSEROS_REPO/packages/browseros-agent"
+          browseros_root="$BROWSEROS_REPO/packages/browseros"
+
+          cd "$agent_root"
+          bun ci
+          bun scripts/build/server.ts --target=darwin-arm64 --ci
+          bun scripts/build/claw-server.ts --target=darwin-arm64 --ci
+
+          cd "$browseros_root"
+          AGENT_ROOT="$agent_root" BROWSEROS_ROOT="$browseros_root" uv run python - <<'PY'
+          import os
+          import shutil
+          from pathlib import Path
+
+          from build.modules.storage.download import extract_artifact_zip
+
+          agent_root = Path(os.environ["AGENT_ROOT"])
+          browseros_root = Path(os.environ["BROWSEROS_ROOT"])
+          artifacts = [
+              (
+                  agent_root / "dist/prod/server/browseros-server-resources-darwin-arm64.zip",
+                  browseros_root / "resources/binaries/browseros_server/darwin-arm64",
+              ),
+              (
+                  agent_root / "dist/prod/claw-server/browseros-claw-server-resources-darwin-arm64.zip",
+                  browseros_root / "resources/binaries/browseros_claw_server/darwin-arm64",
+              ),
+          ]
+
+          for archive, destination in artifacts:
+              if not archive.is_file():
+                  raise SystemExit(f"Missing local server resource archive: {archive}")
+              if destination.exists():
+                  shutil.rmtree(destination)
+              extracted = extract_artifact_zip(archive, destination)
+              print(f"Staged {len(extracted)} file(s) from {archive.name}")
+          PY
+
       - name: Build BrowserOS (macOS arm64)
         env:
           BROWSEROS_REPO: ${{ steps.build_inputs.outputs.browseros_repo }}
@@ -358,7 +321,23 @@ jobs:
           if [ "$UPLOAD_TO_R2" != "true" ]; then
             config="build/config/release.macos.arm64.noupload.yaml"
           fi
-          uv run browseros build --config "$config" --chromium-src "$CHROMIUM_SRC"
+          output_config="${RUNNER_TEMP:-/tmp}/browseros-release-macos-arm64-local-resources.yaml"
+          BASE_CONFIG="$config" OUTPUT_CONFIG="$output_config" uv run python - <<'PY'
+          import os
+          from pathlib import Path
+
+          import yaml
+
+          base_config = Path(os.environ["BASE_CONFIG"])
+          output_config = Path(os.environ["OUTPUT_CONFIG"])
+          config = yaml.safe_load(base_config.read_text())
+          config["modules"] = [
+              module for module in config["modules"] if module != "download_resources"
+          ]
+          output_config.write_text(yaml.safe_dump(config, sort_keys=False))
+          print(output_config)
+          PY
+          uv run browseros build --config "$output_config" --chromium-src "$CHROMIUM_SRC"
 
       - name: Upload DMG artifact
         if: ${{ always() && steps.bump.outputs.version != '' }}

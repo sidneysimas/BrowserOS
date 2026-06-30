@@ -114,8 +114,8 @@ squash merge, then auto-merge, and leaves the PR open if GitHub will not merge i
 yet. The persistent clone must already have credentials that can push bot
 branches. The workflow's `GITHUB_TOKEN` has `contents: write` and
 `pull-requests: write` for the build job so it can create and merge those PRs.
-The reusable server release job also receives `pull-requests: read`, matching the
-permission requested by `.github/workflows/release-server.yml`.
+The workflow stages current macOS arm64 server resource archives locally before
+packaging, then skips the R2 resource download module for that build run.
 
 ## Manual Branch Build
 

@@ -153,18 +153,16 @@ bun scripts/build/server.ts --target=all --no-upload
 
 ## Release Flow
 
-Server releases use annotated component tags and the version in `packages/browseros-agent/apps/server/package.json`. You can still bump that file in a PR and tag the merged commit:
+Server releases are GitHub Releases for annotated component tags. They do not build or upload server binaries; GitHub provides the source zip and tarball for the tag.
+
+Bump `packages/browseros-agent/apps/server/package.json` and the matching `bun.lock` entry in a PR, merge it, then tag the merged commit:
 
 ```bash
-git tag -a agent-server/v0.0.122 -m "agent-server v0.0.122"
-git push origin agent-server/v0.0.122
+git tag -a agent-server/v0.0.123 -m "BrowserOS Server - v0.0.123"
+git push origin agent-server/v0.0.123
 ```
 
-Manual dispatch and tag-first releases can also request the next version directly. If `version=X.Y.Z` or `agent-server/vX.Y.Z` is newer than `apps/server/package.json`, the workflow sets `apps/server/package.json` and `bun.lock` to `X.Y.Z`, commits that bump to the default branch, points the annotated tag at that commit, and builds that exact commit.
-
-The workflow refuses non-semver versions, downgrades, and releases older than existing `browseros-server-v*` or `agent-server/v*` tags. Legacy `browseros-server-vX.Y.Z` tags remain historical; new GitHub Releases use `agent-server/vX.Y.Z`.
-
-The workflow now builds Claw server resource artifacts with `scripts/build/claw-server.ts`. Workflow-call and nightly paths can still build/upload artifacts without publishing a GitHub Release by setting `publish_github_release=false`; in that mode, version bumps stay local so the caller can commit them later.
+The workflow validates the tag against the hardcoded package path. A tag push fails if the tagged commit's package version does not match the tag version. Manual dispatch can set the package version on the default branch, update the matching lockfile entry, create the annotated tag, and publish the GitHub Release.
 
 ## Sidecar Config
 

@@ -62,7 +62,7 @@ export async function captureScreenshotWithAnnotations({
   observer,
   options,
 }: CaptureInput): Promise<ScreenshotCaptureResult> {
-  if ((options.annotate ?? true) === false) {
+  if ((options.annotate ?? false) === false) {
     return runExclusiveScreenshotCapture(pageSession, () =>
       capturePlainScreenshot(pageSession, options),
     )

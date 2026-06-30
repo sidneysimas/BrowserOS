@@ -127,13 +127,33 @@ function deferred() {
 }
 
 describe('captureScreenshotWithAnnotations', () => {
-  it('defaults through the annotation lifecycle and returns annotation metadata', async () => {
+  it('defaults to plain capture without snapshot or overlay work', async () => {
     const harness = createHarness()
+    harness.observer.snapshot = async () => {
+      throw new Error('snapshot should not run')
+    }
 
     const result = await captureScreenshotWithAnnotations({
       pageSession: harness.pageSession as never,
       observer: harness.observer as never,
       options: { format: 'png', fullPage: false },
+    })
+
+    expect(harness.events).toEqual(['capture:false'])
+    expect(result).toEqual({
+      data: 'png-data',
+      mimeType: 'image/png',
+      annotations: [],
+    })
+  })
+
+  it('runs the annotation lifecycle and returns annotation metadata when requested', async () => {
+    const harness = createHarness()
+
+    const result = await captureScreenshotWithAnnotations({
+      pageSession: harness.pageSession as never,
+      observer: harness.observer as never,
+      options: { format: 'png', fullPage: false, annotate: true },
     })
 
     expect(harness.events).toEqual([
@@ -253,7 +273,7 @@ describe('captureScreenshotWithAnnotations', () => {
     const result = await captureScreenshotWithAnnotations({
       pageSession: harness.pageSession as never,
       observer: harness.observer as never,
-      options: { format: 'png', fullPage: false },
+      options: { format: 'png', fullPage: false, annotate: true },
     })
 
     expect(result.annotations[0]?.box).toEqual({
@@ -271,7 +291,7 @@ describe('captureScreenshotWithAnnotations', () => {
     const result = await captureScreenshotWithAnnotations({
       pageSession: harness.pageSession as never,
       observer: harness.observer as never,
-      options: { format: 'jpeg', fullPage: false, clip },
+      options: { format: 'jpeg', fullPage: false, clip, annotate: true },
     })
 
     expect(harness.captureParams[0]).toEqual({
@@ -302,7 +322,7 @@ describe('captureScreenshotWithAnnotations', () => {
     const input = {
       pageSession: harness.pageSession as never,
       observer: harness.observer as never,
-      options: { format: 'png' as const, fullPage: false },
+      options: { format: 'png' as const, fullPage: false, annotate: true },
     }
 
     const first = captureScreenshotWithAnnotations(input)
@@ -362,7 +382,7 @@ describe('captureScreenshotWithAnnotations', () => {
     const annotated = captureScreenshotWithAnnotations({
       pageSession: harness.pageSession as never,
       observer: harness.observer as never,
-      options: { format: 'png', fullPage: false },
+      options: { format: 'png', fullPage: false, annotate: true },
     })
     await firstCaptureStarted.promise
     const plain = captureScreenshotWithAnnotations({

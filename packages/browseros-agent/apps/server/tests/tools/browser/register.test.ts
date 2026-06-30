@@ -181,7 +181,7 @@ describe('registerBrowserTools', () => {
         format: 'jpeg',
         quality: 80,
         fullPage: false,
-        annotate: true,
+        annotate: false,
         clip: {
           x: 5,
           y: 7,
@@ -194,7 +194,7 @@ describe('registerBrowserTools', () => {
         format: 'jpeg',
         quality: 60,
         fullPage: false,
-        annotate: true,
+        annotate: false,
         clip: {
           x: 5,
           y: 7,
@@ -280,7 +280,7 @@ describe('registerBrowserTools', () => {
       {
         format: 'png',
         fullPage: false,
-        annotate: true,
+        annotate: false,
         clip: {
           x: 0,
           y: 0,
@@ -293,7 +293,7 @@ describe('registerBrowserTools', () => {
         format: 'jpeg',
         quality: 80,
         fullPage: true,
-        annotate: true,
+        annotate: false,
       },
     ])
   })

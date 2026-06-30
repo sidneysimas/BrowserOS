@@ -61,7 +61,7 @@ export const screenshot = defineTool({
     annotate: z
       .boolean()
       .optional()
-      .describe('Overlay numbered refs from a fresh snapshot. Defaults true.'),
+      .describe('Overlay numbered refs from a fresh snapshot. Defaults false.'),
   }),
   annotations: { readOnlyHint: true },
   handler: async (args, ctx) => {
@@ -69,7 +69,7 @@ export const screenshot = defineTool({
     const captureOptions: ScreenshotCaptureOptions = {
       format: args.format,
       fullPage,
-      annotate: args.annotate ?? true,
+      annotate: args.annotate ?? false,
     }
     const quality = screenshotQuality(args.format, args.quality)
     if (quality !== undefined) captureOptions.quality = quality

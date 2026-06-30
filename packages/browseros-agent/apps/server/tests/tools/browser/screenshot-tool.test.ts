@@ -8,7 +8,7 @@ import { executeTool } from '@browseros/browser-mcp/tools/framework'
 import { screenshot } from '@browseros/browser-mcp/tools/screenshot'
 
 describe('screenshot tool', () => {
-  it('defaults annotate to true and returns inline JPEG content', async () => {
+  it('defaults annotate to false and returns inline JPEG content', async () => {
     let captured:
       | { page: number; options: ScreenshotCaptureOptions }
       | undefined
@@ -18,15 +18,17 @@ describe('screenshot tool', () => {
         return {
           data: 'jpeg-data',
           mimeType: `image/${options.format}`,
-          annotations: [
-            {
-              ref: 'e1',
-              number: 1,
-              role: 'button',
-              name: 'Save',
-              box: { x: 1, y: 2, width: 3, height: 4 },
-            },
-          ],
+          annotations: options.annotate
+            ? [
+                {
+                  ref: 'e1',
+                  number: 1,
+                  role: 'button',
+                  name: 'Save',
+                  box: { x: 1, y: 2, width: 3, height: 4 },
+                },
+              ]
+            : [],
         } satisfies ScreenshotCaptureResult
       },
       pages: {
@@ -61,7 +63,7 @@ describe('screenshot tool', () => {
         format: 'jpeg',
         quality: 80,
         fullPage: false,
-        annotate: true,
+        annotate: false,
         clip: { x: 5, y: 7, width: 2048, height: 1536, scale: 0.5 },
       },
     })
@@ -73,15 +75,6 @@ describe('screenshot tool', () => {
       format: 'jpeg',
       bytes: Buffer.from('jpeg-data', 'base64').length,
       image: 'jpeg-data',
-      annotations: [
-        {
-          ref: 'e1',
-          number: 1,
-          role: 'button',
-          name: 'Save',
-          box: { x: 1, y: 2, width: 3, height: 4 },
-        },
-      ],
     })
   })
 

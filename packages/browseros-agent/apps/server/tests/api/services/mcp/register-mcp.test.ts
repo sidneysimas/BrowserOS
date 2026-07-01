@@ -76,6 +76,7 @@ async function withBrowserosDir<T>(run: () => Promise<T>): Promise<T> {
 
 describe('registerTools', () => {
   const originalInfo = logger.info
+  const originalDebug = logger.debug
   const originalError = logger.error
   const filesystemToolNames = [
     'filesystem_read',
@@ -86,19 +87,25 @@ describe('registerTools', () => {
     'filesystem_find',
     'filesystem_ls',
   ]
-  let infoMessages: unknown[] = []
+  let infoLogs: Array<{ message: string; meta?: Record<string, unknown> }> = []
+  let debugLogs: Array<{ message: string; meta?: Record<string, unknown> }> = []
 
   beforeEach(() => {
     resetToolRegistrationLogSamplingForTests()
-    infoMessages = []
-    logger.info = ((message: string) => {
-      infoMessages.push(message)
+    infoLogs = []
+    debugLogs = []
+    logger.info = ((message: string, meta?: Record<string, unknown>) => {
+      infoLogs.push({ message, meta })
     }) as typeof logger.info
+    logger.debug = ((message: string, meta?: Record<string, unknown>) => {
+      debugLogs.push({ message, meta })
+    }) as typeof logger.debug
     logger.error = (() => {}) as typeof logger.error
   })
 
   afterEach(() => {
     logger.info = originalInfo
+    logger.debug = originalDebug
     logger.error = originalError
     resetToolRegistrationLogSamplingForTests()
   })
@@ -218,15 +225,56 @@ describe('registerTools', () => {
       }
     }
 
-    expect(infoMessages).toHaveLength(2)
-    expect(infoMessages).toEqual([
-      expect.stringContaining(
-        `Registered ${BROWSER_TOOLS.length} browser tools`,
-      ),
-      expect.stringContaining(
-        `Registered ${BROWSER_TOOLS.length} browser tools`,
-      ),
+    expect(
+      infoLogs.filter((log) => log.message === 'Registered browser MCP tools'),
+    ).toEqual([
+      expect.objectContaining({
+        meta: expect.objectContaining({ count: BROWSER_TOOLS.length }),
+      }),
+      expect.objectContaining({
+        meta: expect.objectContaining({ count: BROWSER_TOOLS.length }),
+      }),
     ])
+  })
+
+  it('logs filesystem MCP tool errors without changing the MCP result', async () => {
+    const fake = createFakeServer()
+
+    registerTools(fake.server as never, {
+      browserSession: { pages: {} } as unknown as BrowserSession,
+      executionDir: '/tmp/browseros-execution',
+      remoteAgentHarness: {
+        outputFileAccess: createBrowserOutputFileAccess(),
+      },
+    })
+
+    const result = await fake.handlers.get('filesystem_read')?.({
+      path: 'missing-file.txt',
+    })
+
+    expect(result?.isError).toBe(true)
+    expect(textOf(result)).toBeTruthy()
+    expect(debugLogs.map((log) => log.message)).toContain(
+      'MCP filesystem tool started',
+    )
+    expect(
+      infoLogs.find(
+        (log) => log.message === 'MCP filesystem tool returned error',
+      ),
+    ).toEqual(
+      expect.objectContaining({
+        meta: expect.objectContaining({
+          toolName: 'filesystem_read',
+          source: 'mcp',
+          cwd: '/tmp/browseros-execution',
+          errorSummary: expect.objectContaining({
+            textLength: expect.any(Number),
+            lineCount: expect.any(Number),
+          }),
+        }),
+      }),
+    )
+    expect(JSON.stringify(infoLogs)).not.toContain(textOf(result))
   })
 
   it('applies scoped defaults to tab creation', async () => {

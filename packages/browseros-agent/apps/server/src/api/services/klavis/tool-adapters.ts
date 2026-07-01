@@ -64,6 +64,61 @@ function isObjectRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null
 }
 
+function summarizeKlavisArgs(args: Record<string, unknown>) {
+  const summary: Record<string, unknown> = {
+    argKeys: Object.keys(args).sort(),
+  }
+  if (typeof args.server_name === 'string') {
+    summary.serverName = args.server_name
+  }
+  return summary
+}
+
+function summarizeConnectorPayload(payload: ConnectorToolPayload) {
+  if ('available' in payload) {
+    return {
+      type: 'inventory',
+      availableCount: payload.available.length,
+      connectedServers: payload.connected.map((item) => item.name),
+      selectedServers: payload.selected,
+      proxyState: payload.proxy.state,
+    }
+  }
+  return {
+    type: 'connection',
+    serverName: payload.server_name,
+    connected: payload.connected,
+    hasAuthUrl: Boolean(payload.authUrl),
+    proxyState: payload.proxy.state,
+  }
+}
+
+function summarizeCallToolError(
+  result: unknown,
+): Record<string, unknown> | undefined {
+  if (!isObjectRecord(result) || !Array.isArray(result.content)) {
+    return undefined
+  }
+  const textBlocks = result.content
+    .filter(
+      (item): item is { type: 'text'; text: string } =>
+        typeof item === 'object' &&
+        item !== null &&
+        'type' in item &&
+        item.type === 'text' &&
+        'text' in item &&
+        typeof item.text === 'string',
+    )
+    .map((item) => item.text)
+  const text = textBlocks.join('\n')
+  return {
+    contentCount: result.content.length,
+    textBlockCount: textBlocks.length,
+    textLength: text.length,
+    lineCount: text.length ? text.split('\n').length : 0,
+  }
+}
+
 async function buildConnectorToolPayload(
   deps: KlavisToolAdapterDeps,
   args: Record<string, unknown>,
@@ -188,15 +243,32 @@ export function registerKlavisTools(
     },
     async (args: Record<string, unknown>) => {
       const startTime = performance.now()
+      const selectedServers = selectedServerNames(deps.scope)
+      const logBase = {
+        toolName: 'connector_mcp_servers',
+        source: 'mcp',
+        proxyState: deps.proxyStatus.state,
+        selectedServers,
+      }
+      logger.debug('MCP Klavis connector tool started', {
+        ...logBase,
+        args: summarizeKlavisArgs(args),
+      })
 
       try {
         const payload = await buildConnectorToolPayload(deps, args)
+        const durationMs = Math.round(performance.now() - startTime)
 
         metrics.log('tool_executed', {
           tool_name: 'connector_mcp_servers',
           source: 'mcp',
-          duration_ms: Math.round(performance.now() - startTime),
+          duration_ms: durationMs,
           success: true,
+        })
+        logger.debug('MCP Klavis connector tool completed', {
+          ...logBase,
+          durationMs,
+          result: summarizeConnectorPayload(payload),
         })
 
         return {
@@ -209,13 +281,19 @@ export function registerKlavisTools(
         }
       } catch (error) {
         const errorText = error instanceof Error ? error.message : String(error)
+        const durationMs = Math.round(performance.now() - startTime)
 
         metrics.log('tool_executed', {
           tool_name: 'connector_mcp_servers',
           source: 'mcp',
-          duration_ms: Math.round(performance.now() - startTime),
+          duration_ms: durationMs,
           success: false,
           error_message: errorText,
+        })
+        logger.info('MCP Klavis connector tool returned error', {
+          ...logBase,
+          durationMs,
+          error: errorText,
         })
 
         return {
@@ -231,10 +309,12 @@ export function registerKlavisTools(
     logger.debug('Registered Klavis connector discovery on MCP server', {
       proxyState: deps.proxyStatus.state,
       selectedServers: selectedServerNames(deps.scope),
+      selectedServerCount: selectedServerNames(deps.scope).length,
     })
     return
   }
 
+  const selectedServers = selectedServerNames(deps.scope)
   for (const strataTool of session.tools) {
     const inputSchema = session.inputSchemas.get(strataTool.name)
 
@@ -246,27 +326,59 @@ export function registerKlavisTools(
       },
       async (args: Record<string, unknown>) => {
         const startTime = performance.now()
+        const logBase = {
+          toolName: strataTool.name,
+          source: 'mcp',
+          proxyState: deps.proxyStatus.state,
+          selectedServers,
+        }
+        logger.debug('MCP Klavis tool started', {
+          ...logBase,
+          args: summarizeKlavisArgs(args),
+        })
         try {
           const result = await session.callTool(strataTool.name, args)
+          const durationMs = Math.round(performance.now() - startTime)
 
           metrics.log('tool_executed', {
             tool_name: strataTool.name,
             source: 'mcp',
-            duration_ms: Math.round(performance.now() - startTime),
+            duration_ms: durationMs,
             success: !result?.isError,
           })
+          logger.debug('MCP Klavis tool completed', {
+            ...logBase,
+            durationMs,
+            isError: Boolean(result?.isError),
+            contentCount: Array.isArray(result?.content)
+              ? result.content.length
+              : 0,
+          })
+          if (result?.isError) {
+            logger.info('MCP Klavis tool returned error', {
+              ...logBase,
+              durationMs,
+              errorSummary: summarizeCallToolError(result),
+            })
+          }
 
           return result
         } catch (error) {
           const errorText =
             error instanceof Error ? error.message : String(error)
+          const durationMs = Math.round(performance.now() - startTime)
 
           metrics.log('tool_executed', {
             tool_name: strataTool.name,
             source: 'mcp',
-            duration_ms: Math.round(performance.now() - startTime),
+            duration_ms: durationMs,
             success: false,
             error_message: errorText,
+          })
+          logger.info('MCP Klavis tool threw', {
+            ...logBase,
+            durationMs,
+            error: errorText,
           })
 
           return {
@@ -280,6 +392,7 @@ export function registerKlavisTools(
 
   logger.debug('Registered Klavis tools on MCP server', {
     count: session.tools.length + 1,
-    selectedServers: selectedServerNames(deps.scope),
+    selectedServers,
+    selectedServerCount: selectedServers.length,
   })
 }

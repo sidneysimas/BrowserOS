@@ -24,16 +24,27 @@ export interface McpClientBundle {
   tools: ToolSet
 }
 
-// Build list of custom MCP server specs from browser context
-// (Klavis Strata is handled separately via shared background connection)
+function summarizeMcpUrl(value: string): string {
+  try {
+    const url = new URL(value)
+    return `${url.origin}${url.pathname}`
+  } catch {
+    return '(invalid url)'
+  }
+}
+
+/** Builds custom MCP server specs from browser context. */
 export async function buildMcpServerSpecs(
   deps: McpServerSpecDeps,
 ): Promise<McpServerSpec[]> {
   const specs: McpServerSpec[] = []
 
-  // User-provided custom MCP servers
   if (deps.browserContext?.customMcpServers?.length) {
     const servers = deps.browserContext.customMcpServers
+    logger.debug('Resolving custom MCP server transports', {
+      count: servers.length,
+      serverNames: servers.map((server) => server.name),
+    })
     const transports = await Promise.all(
       servers.map((s) => detectMcpTransport(s.url)),
     )
@@ -44,16 +55,30 @@ export async function buildMcpServerSpecs(
         transport: transports[i],
       })
     }
+    logger.debug('Custom MCP server specs resolved', {
+      count: specs.length,
+      specs: specs.map((spec) => ({
+        name: spec.name,
+        url: summarizeMcpUrl(spec.url),
+        transport: spec.transport,
+      })),
+    })
   }
 
   return specs
 }
 
-// Connect a single MCP client with timeout protection
 async function connectMcpClient(
   spec: McpServerSpec,
 ): Promise<{ client: { close(): Promise<void> }; tools: ToolSet } | null> {
   const timeout = TIMEOUTS.MCP_CLIENT_CONNECT
+  const logContext = {
+    name: spec.name,
+    url: summarizeMcpUrl(spec.url),
+    transport: spec.transport,
+    timeoutMs: timeout,
+  }
+  logger.debug('Connecting MCP client', logContext)
   try {
     const client = await Promise.race([
       createMCPClient({
@@ -85,6 +110,10 @@ async function connectMcpClient(
         ),
       ),
     ])
+    logger.debug('MCP client connected', {
+      ...logContext,
+      toolCount: Object.keys(clientTools).length,
+    })
     // Cast keeps the call green when this package compiles in a
     // workspace that also has zod v4 present (the cockpit at
     // apps/claw-server). The two zod majors export
@@ -96,28 +125,39 @@ async function connectMcpClient(
     return { client, tools: clientTools as ToolSet }
   } catch (error) {
     logger.warn('Failed to connect MCP client, skipping', {
-      name: spec.name,
-      url: spec.url,
+      ...logContext,
       error: error instanceof Error ? error.message : String(error),
     })
     return null
   }
 }
 
-// Create MCP clients from specs, return merged toolset
+/** Connects custom MCP servers and returns their merged toolset. */
 export async function createMcpClients(
   specs: McpServerSpec[],
 ): Promise<McpClientBundle> {
   const clients: Array<{ close(): Promise<void> }> = []
   let tools: ToolSet = {}
 
-  // Connect all clients concurrently with per-client timeout
+  if (specs.length > 0) {
+    logger.debug('Creating MCP clients', {
+      count: specs.length,
+      serverNames: specs.map((spec) => spec.name),
+    })
+  }
   const results = await Promise.all(specs.map(connectMcpClient))
   for (const result of results) {
     if (result) {
       clients.push(result.client)
       tools = { ...tools, ...result.tools }
     }
+  }
+  if (specs.length > 0) {
+    logger.debug('MCP clients created', {
+      requestedCount: specs.length,
+      connectedCount: clients.length,
+      toolCount: Object.keys(tools).length,
+    })
   }
 
   return { clients, tools }

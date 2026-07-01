@@ -47,6 +47,45 @@ export interface RegisterFilesystemMcpToolsOptions {
   outputFileAccess?: BrowserOutputFileAccess
 }
 
+function summarizeFilesystemArgs(
+  args: Record<string, unknown>,
+): Record<string, unknown> {
+  const summary: Record<string, unknown> = {
+    argKeys: Object.keys(args).sort(),
+  }
+  if (typeof args.path === 'string') summary.path = args.path
+  if (typeof args.pattern === 'string')
+    summary.patternLength = args.pattern.length
+  if (typeof args.glob === 'string') summary.glob = args.glob
+  if (typeof args.limit === 'number') summary.limit = args.limit
+  if (typeof args.command === 'string') {
+    summary.commandLength = args.command.length
+  }
+  return summary
+}
+
+function summarizeFilesystemErrorText(
+  toolName: string,
+  text: string,
+): Record<string, unknown> {
+  const summary: Record<string, unknown> = {
+    textLength: text.length,
+    lineCount: text.length ? text.split('\n').length : 0,
+  }
+  if (toolName !== 'filesystem_bash') return summary
+
+  const exitCodeMatch = text.match(/\n\n\[Exit code: (-?\d+)\]\s*$/)
+  if (exitCodeMatch) {
+    summary.exitCode = Number(exitCodeMatch[1])
+  }
+  const timeoutMatch = text.match(/^Command timed out after ([0-9.]+)s\b/)
+  if (timeoutMatch) {
+    summary.timedOut = true
+    summary.timeoutSeconds = Number(timeoutMatch[1])
+  }
+  return summary
+}
+
 export function registerFilesystemMcpTools(
   server: McpServer,
   cwd: string,
@@ -68,8 +107,42 @@ export function registerFilesystemMcpTools(
         inputSchema: tool.inputSchema.shape,
       },
       async (args, extra) => {
-        const result = await tool.execute(args, { signal: extra?.signal })
+        const startTime = performance.now()
+        const duration = () => Math.round(performance.now() - startTime)
+        const logBase = {
+          toolName: name,
+          source: 'mcp',
+          cwd,
+        }
+        logger.debug('MCP filesystem tool started', {
+          ...logBase,
+          args: summarizeFilesystemArgs(args),
+        })
+        let result: FilesystemToolResult
+        try {
+          result = await tool.execute(args, { signal: extra?.signal })
+        } catch (error) {
+          const errorText =
+            error instanceof Error ? error.message : String(error)
+          logger.info('MCP filesystem tool threw', {
+            ...logBase,
+            durationMs: duration(),
+            error: errorText,
+          })
+          throw error
+        }
+        logger.debug('MCP filesystem tool completed', {
+          ...logBase,
+          durationMs: duration(),
+          isError: Boolean(result.isError),
+          imageCount: result.images?.length ?? 0,
+        })
         if (result.isError) {
+          logger.info('MCP filesystem tool returned error', {
+            ...logBase,
+            durationMs: duration(),
+            errorSummary: summarizeFilesystemErrorText(name, result.text),
+          })
           return {
             content: [{ type: 'text', text: result.text }],
             isError: true,

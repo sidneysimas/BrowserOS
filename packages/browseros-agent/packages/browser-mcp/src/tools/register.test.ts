@@ -75,7 +75,12 @@ describe('registerBrowserTools', () => {
 
   it('logs sampled registration and records failed tool executions', async () => {
     const fake = createFakeServer()
-    const infoMessages: string[] = []
+    const debugLogs: Array<{
+      message: string
+      meta?: Record<string, unknown>
+    }> = []
+    const infoLogs: Array<{ message: string; meta?: Record<string, unknown> }> =
+      []
     const events: Array<Record<string, unknown>> = []
     const session = {
       pages: {
@@ -90,7 +95,10 @@ describe('registerBrowserTools', () => {
       session,
       {},
       {
-        logger: { info: (message) => infoMessages.push(message) },
+        logger: {
+          debug: (message, meta) => debugLogs.push({ message, meta }),
+          info: (message, meta) => infoLogs.push({ message, meta }),
+        },
         onToolExecuted: (event) => events.push(event),
         shouldLogToolRegistration: () => true,
         source: 'unit-test',
@@ -102,11 +110,43 @@ describe('registerBrowserTools', () => {
       url: 'https://example.com',
     })
 
-    expect(infoMessages).toEqual([
-      expect.stringContaining(
-        `Registered ${BROWSER_TOOLS.length} browser tools`,
-      ),
+    expect(infoLogs).toEqual([
+      {
+        message: 'Registered browser MCP tools',
+        meta: expect.objectContaining({
+          count: BROWSER_TOOLS.length,
+          source: 'unit-test',
+        }),
+      },
+      {
+        message: 'MCP browser tool returned error',
+        meta: expect.objectContaining({
+          toolName: 'tabs',
+          source: 'unit-test',
+          errorSummary: expect.objectContaining({
+            contentCount: expect.any(Number),
+            textBlockCount: expect.any(Number),
+            textLength: expect.any(Number),
+            lineCount: expect.any(Number),
+          }),
+        }),
+      },
     ])
+    expect(JSON.stringify(infoLogs)).not.toContain('tab creation failed')
+    expect(debugLogs.map((log) => log.message)).toEqual([
+      'MCP browser tool started',
+      'MCP browser tool completed',
+    ])
+    expect(debugLogs[0]?.meta).toEqual(
+      expect.objectContaining({
+        toolName: 'tabs',
+        source: 'unit-test',
+        args: expect.objectContaining({
+          action: 'new',
+          urlOrigin: 'https://example.com',
+        }),
+      }),
+    )
     expect(result?.isError).toBe(true)
     expect(textOf(result)).toContain('tab creation failed')
     expect(events).toEqual([

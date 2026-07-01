@@ -14,7 +14,11 @@ import {
   isSupportedConnector,
 } from './catalog'
 import { KlavisClient } from './client'
-import { buildConnectorInventory, getAuthUrlForServer } from './connector-state'
+import {
+  buildConnectorInventory,
+  getAuthUrlForServer,
+  selectedServerNames,
+} from './connector-state'
 import { KlavisStrataCache } from './strata-cache'
 import {
   type ConnectKlavisStrataSessionDeps,
@@ -183,8 +187,17 @@ export class KlavisService {
 
   registerMcpTools(server: McpServer, scope: ConnectorToolScope = {}): void {
     if (!this.browserosId) {
+      logger.debug('Skipping Klavis MCP tools registration', {
+        reason: 'missing_browseros_id',
+        selectedServers: selectedServerNames(scope),
+      })
       return
     }
+    logger.debug('Registering Klavis MCP tools', {
+      proxyState: this.status.state,
+      selectedServers: selectedServerNames(scope),
+      sessionToolCount: this.session?.tools.length ?? 0,
+    })
     registerKlavisTools(server, this.toolAdapterDeps(scope))
   }
 

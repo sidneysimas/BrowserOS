@@ -28,6 +28,7 @@ import { TOOL_LIMITS } from '@browseros/shared/constants/limits'
 import { z } from 'zod'
 import { CHAT_MODE_ALLOWED_TOOLS } from '../../../src/agent/chat-mode'
 import { buildBrowserToolSet } from '../../../src/agent/tool-adapter'
+import { logger } from '../../../src/lib/logger'
 import { createReadTool } from '../../../src/tools/filesystem/read'
 
 type RegisteredHandler = (args: Record<string, unknown>) => Promise<{
@@ -2009,6 +2010,49 @@ describe('buildBrowserToolSet', () => {
     expect(activeResult).toMatchObject({ isError: false })
     expect(newResult).toMatchObject({ isError: true })
     expect(calls).toEqual([])
+  })
+
+  it('logs browser chat returned errors without raw result text', async () => {
+    const originalInfo = logger.info
+    const infoLogs: Array<{ message: string; meta?: Record<string, unknown> }> =
+      []
+    logger.info = ((message: string, meta?: Record<string, unknown>) => {
+      infoLogs.push({ message, meta })
+    }) as typeof logger.info
+
+    try {
+      const tools = buildBrowserToolSet(
+        { pages: {} } as unknown as BrowserSession,
+        { readOnly: true },
+      )
+      const result = await tools.tabs.execute?.(
+        { action: 'new', url: 'https://example.com' },
+        { abortSignal: new AbortController().signal } as never,
+      )
+
+      expect(result).toMatchObject({ isError: true })
+      expect(JSON.stringify(infoLogs)).not.toContain('chat mode only supports')
+      expect(
+        infoLogs.find(
+          (log) => log.message === 'Browser chat tool returned error',
+        ),
+      ).toEqual(
+        expect.objectContaining({
+          meta: expect.objectContaining({
+            toolName: 'tabs',
+            source: 'chat',
+            errorSummary: expect.objectContaining({
+              contentCount: expect.any(Number),
+              textBlockCount: expect.any(Number),
+              textLength: expect.any(Number),
+              lineCount: expect.any(Number),
+            }),
+          }),
+        }),
+      )
+    } finally {
+      logger.info = originalInfo
+    }
   })
 
   it('propagates AI SDK abort signals into browser tools', async () => {

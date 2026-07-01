@@ -27,6 +27,16 @@ export interface McpServiceDeps {
 
 /** Creates a per-request BrowserOS MCP server with tools for the requested surface. */
 export function createMcpServer(deps: McpServiceDeps) {
+  const selectedServerNames = deps.connectorScope?.selectedServerNames ?? []
+  logger.debug('Creating BrowserOS MCP server', {
+    version: deps.version,
+    remoteAgentHarness: Boolean(deps.remoteAgentHarness),
+    selectedServerNames,
+    selectedServerCount: selectedServerNames.length,
+    defaultWindowId: deps.defaultWindowId,
+    defaultTabGroupId: deps.defaultTabGroupId,
+  })
+
   const server = createBrowserMcpServer({
     name: 'browseros_mcp',
     title: 'BrowserOS MCP server',
@@ -45,12 +55,20 @@ export function createMcpServer(deps: McpServiceDeps) {
   })
 
   if (deps.remoteAgentHarness) {
+    logger.debug('Registering remote harness filesystem MCP tools', {
+      executionDir: deps.executionDir,
+    })
     registerFilesystemMcpTools(server, deps.executionDir, {
       outputFileAccess: deps.remoteAgentHarness.outputFileAccess,
     })
   }
 
   deps.klavis?.registerMcpTools(server, deps.connectorScope)
+  logger.debug('BrowserOS MCP server created', {
+    remoteAgentHarness: Boolean(deps.remoteAgentHarness),
+    selectedServerNames,
+    selectedServerCount: selectedServerNames.length,
+  })
 
   return server
 }

@@ -49,6 +49,62 @@ export interface AiSdkAgentConfig {
   outputFileAccess?: BrowserOutputFileAccess
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null
+}
+
+function summarizeToolInput(input: unknown): Record<string, unknown> {
+  if (!isRecord(input)) {
+    return { inputType: typeof input }
+  }
+  const summary: Record<string, unknown> = {
+    argKeys: Object.keys(input).sort(),
+  }
+  if (typeof input.server_name === 'string') {
+    summary.serverName = input.server_name
+  }
+  if (typeof input.path === 'string') {
+    summary.path = input.path
+  }
+  if (typeof input.page === 'number') {
+    summary.page = input.page
+  }
+  if (typeof input.action === 'string') {
+    summary.action = input.action
+  }
+  return summary
+}
+
+function toolResultIsError(result: unknown): boolean {
+  return isRecord(result) && result.isError === true
+}
+
+function summarizeToolResultError(
+  result: unknown,
+): Record<string, unknown> | undefined {
+  if (!isRecord(result) || !Array.isArray(result.content)) {
+    return undefined
+  }
+  const textBlocks = result.content
+    .filter(
+      (item): item is { type: 'text'; text: string } =>
+        typeof item === 'object' &&
+        item !== null &&
+        'type' in item &&
+        item.type === 'text' &&
+        'text' in item &&
+        typeof item.text === 'string',
+    )
+    .map((item) => item.text)
+  const text = textBlocks.join('\n')
+  return {
+    contentCount: result.content.length,
+    textBlockCount: textBlocks.length,
+    textLength: text.length,
+    lineCount: text.length ? text.split('\n').length : 0,
+  }
+}
+
 /** Builds filesystem tools for model-backed sessions, with scoped readback outside full workspace mode. */
 export function buildAgentFilesystemToolSet(
   resolvedConfig: ResolvedAgentConfig,
@@ -184,23 +240,54 @@ export class AiSdkAgent {
               ...args: Parameters<NonNullable<typeof originalExecute>>
             ) => {
               const startTime = performance.now()
+              const logBase = {
+                toolName: name,
+                source: 'chat',
+                conversationId: config.resolvedConfig.conversationId,
+                provider: config.resolvedConfig.provider,
+              }
+              logger.debug('External MCP chat tool started', {
+                ...logBase,
+                args: summarizeToolInput(args[0]),
+              })
               try {
                 const result = await originalExecute(...args)
+                const durationMs = Math.round(performance.now() - startTime)
+                const isError = toolResultIsError(result)
                 metrics.log('tool_executed', {
                   tool_name: name,
-                  duration_ms: Math.round(performance.now() - startTime),
-                  success: true,
+                  duration_ms: durationMs,
+                  success: !isError,
                   source: 'chat',
                 })
+                logger.debug('External MCP chat tool completed', {
+                  ...logBase,
+                  durationMs,
+                  isError,
+                })
+                if (isError) {
+                  logger.info('External MCP chat tool returned error', {
+                    ...logBase,
+                    durationMs,
+                    errorSummary: summarizeToolResultError(result),
+                  })
+                }
                 return result
               } catch (error) {
+                const errorText =
+                  error instanceof Error ? error.message : String(error)
+                const durationMs = Math.round(performance.now() - startTime)
                 metrics.log('tool_executed', {
                   tool_name: name,
-                  duration_ms: Math.round(performance.now() - startTime),
+                  duration_ms: durationMs,
                   success: false,
-                  error_message:
-                    error instanceof Error ? error.message : String(error),
+                  error_message: errorText,
                   source: 'chat',
+                })
+                logger.info('External MCP chat tool threw', {
+                  ...logBase,
+                  durationMs,
+                  error: errorText,
                 })
                 throw error
               }

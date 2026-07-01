@@ -32,6 +32,16 @@ interface McpRouteDeps {
   createMcpTransport?: CreateMcpTransportFn
 }
 
+interface McpRequestLogContext extends Record<string, unknown> {
+  scopeId: string
+  source?: string
+  remoteAgentHarness: boolean
+  selectedServerNames: string[]
+  selectedServerCount: number
+  defaultWindowId?: number
+  defaultTabGroupId?: string
+}
+
 function parseOptionalNumber(value: string | undefined): number | undefined {
   if (value === undefined) return undefined
   const n = Number(value)
@@ -63,6 +73,7 @@ export function parseManagedMcpServersHeader(
   return out
 }
 
+/** Creates the Hono routes that expose BrowserOS as a request-scoped MCP server. */
 export function createMcpRoutes(deps: McpRouteDeps) {
   const app = new Hono<Env>()
   const makeMcpServer = deps.createMcpServer ?? createMcpServer
@@ -83,6 +94,7 @@ export function createMcpRoutes(deps: McpRouteDeps) {
   app.post('/', async (c) => {
     const scopeId = c.req.header('X-BrowserOS-Scope-Id') || 'ephemeral'
     metrics.log('mcp.request', { scopeId })
+    const source = c.req.query('source') || undefined
 
     const defaultWindowId = parseOptionalNumber(
       c.req.header('X-BrowserOS-Default-Window-Id'),
@@ -94,9 +106,20 @@ export function createMcpRoutes(deps: McpRouteDeps) {
     )
 
     const harness =
-      c.req.query('source') === REMOTE_AGENT_HARNESS_MCP_SOURCE
+      source === REMOTE_AGENT_HARNESS_MCP_SOURCE
         ? remoteAgentHarness
         : undefined
+    const logContext: McpRequestLogContext = {
+      scopeId,
+      source,
+      remoteAgentHarness: Boolean(harness),
+      selectedServerNames,
+      selectedServerCount: selectedServerNames.length,
+      defaultWindowId,
+      defaultTabGroupId,
+    }
+
+    logger.debug('MCP request received', logContext)
 
     // Per-request server + transport: no shared state, no race conditions,
     // no ID collisions. Required by MCP SDK 1.26.0+ security fix (GHSA-345p-7cg4-v4c7).
@@ -117,7 +140,13 @@ export function createMcpRoutes(deps: McpRouteDeps) {
 
     try {
       await mcpServer.connect(transport)
-      return transport.handleRequest(c)
+      logger.debug('MCP request transport connected', logContext)
+      const response = await transport.handleRequest(c)
+      logger.debug('MCP request handled', {
+        ...logContext,
+        status: response?.status,
+      })
+      return response
     } catch (error) {
       Sentry.withScope((scope) => {
         scope.setTag('route', 'mcp')
@@ -125,6 +154,7 @@ export function createMcpRoutes(deps: McpRouteDeps) {
         Sentry.captureException(error)
       })
       logger.error('Error handling MCP request', {
+        ...logContext,
         error: error instanceof Error ? error.message : String(error),
       })
 

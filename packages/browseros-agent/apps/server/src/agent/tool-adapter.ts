@@ -14,6 +14,7 @@ import {
   throwIfAborted,
 } from '@browseros/browser-mcp/tools/framework'
 import { type ToolSet, tool } from 'ai'
+import { logger } from '../lib/logger'
 import { metrics } from '../lib/metrics'
 
 export interface BrowserToolSetOptions {
@@ -26,6 +27,46 @@ interface ToolExecuteOptions {
 }
 
 const BROWSER_TOOL_TIMEOUT_MS = 120_000
+
+function summarizeBrowserToolParams(params: unknown): Record<string, unknown> {
+  if (!params || typeof params !== 'object') {
+    return { inputType: typeof params }
+  }
+  const input = params as Record<string, unknown>
+  const summary: Record<string, unknown> = {
+    argKeys: Object.keys(input).sort(),
+  }
+  if (typeof input.page === 'number') summary.page = input.page
+  if (typeof input.action === 'string') summary.action = input.action
+  if (typeof input.format === 'string') summary.format = input.format
+  if (typeof input.timeoutMs === 'number') summary.timeoutMs = input.timeoutMs
+  if (typeof input.selector === 'string') summary.selectorPresent = true
+  if (typeof input.url === 'string') {
+    try {
+      summary.urlOrigin = new URL(input.url).origin
+    } catch {
+      summary.urlPresent = true
+    }
+  }
+  return summary
+}
+
+function summarizeBrowserToolError(
+  content: ContentBlock[],
+): Record<string, unknown> {
+  const textBlocks = content
+    .filter(
+      (item): item is ContentBlock & { type: 'text' } => item.type === 'text',
+    )
+    .map((item) => item.text)
+  const text = textBlocks.join('\n')
+  return {
+    contentCount: content.length,
+    textBlockCount: textBlocks.length,
+    textLength: text.length,
+    lineCount: text.length ? text.split('\n').length : 0,
+  }
+}
 
 function withBrowserToolTimeout(signal?: AbortSignal): AbortSignal {
   const timeoutSignal = AbortSignal.timeout(BROWSER_TOOL_TIMEOUT_MS)
@@ -83,21 +124,52 @@ export function buildBrowserToolSet(
         const startTime = performance.now()
         const signal = withBrowserToolTimeout(executeOptions?.abortSignal)
         throwIfAborted(signal)
-        const result =
-          readOnlyGuard(def, params, options) ??
-          (await withBrowserOutputFileAccess(options.outputFileAccess, () =>
-            executeBrowserTool(def, params as Record<string, unknown>, {
-              session,
-              signal,
-            }),
-          ))
-        metrics.log('tool_executed', {
-          tool_name: def.name,
-          duration_ms: Math.round(performance.now() - startTime),
-          success: !result.isError,
+        const logBase = {
+          toolName: def.name,
           source: 'chat',
+        }
+        logger.debug('Browser chat tool started', {
+          ...logBase,
+          args: summarizeBrowserToolParams(params),
+          readOnly: Boolean(options.readOnly),
         })
-        return { content: result.content, isError: result.isError ?? false }
+        try {
+          const result =
+            readOnlyGuard(def, params, options) ??
+            (await withBrowserOutputFileAccess(options.outputFileAccess, () =>
+              executeBrowserTool(def, params as Record<string, unknown>, {
+                session,
+                signal,
+              }),
+            ))
+          const durationMs = Math.round(performance.now() - startTime)
+          metrics.log('tool_executed', {
+            tool_name: def.name,
+            duration_ms: durationMs,
+            success: !result.isError,
+            source: 'chat',
+          })
+          logger.debug('Browser chat tool completed', {
+            ...logBase,
+            durationMs,
+            isError: Boolean(result.isError),
+          })
+          if (result.isError) {
+            logger.info('Browser chat tool returned error', {
+              ...logBase,
+              durationMs,
+              errorSummary: summarizeBrowserToolError(result.content),
+            })
+          }
+          return { content: result.content, isError: result.isError ?? false }
+        } catch (error) {
+          logger.info('Browser chat tool threw', {
+            ...logBase,
+            durationMs: Math.round(performance.now() - startTime),
+            error: error instanceof Error ? error.message : String(error),
+          })
+          throw error
+        }
       },
       toModelOutput: ({ output }) => {
         const result = output as { content: ContentBlock[]; isError: boolean }

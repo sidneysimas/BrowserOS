@@ -72,6 +72,10 @@ async function tag(dir: string, name: string): Promise<void> {
   await mustRun(dir, ['git', 'tag', '-a', name, '-m', name])
 }
 
+async function revParse(dir: string, ref: string): Promise<string> {
+  return (await mustRun(dir, ['git', 'rev-parse', ref])).trim()
+}
+
 async function initFixture(version: string): Promise<{
   dir: string
   bareDir: string
@@ -128,88 +132,102 @@ async function prepare(
 }
 
 describe('prepare-server-release', () => {
-  it('commits a manual version bump and pushes the branch and tag', async () => {
+  it('pushes only the tag on manual dispatch and leaves the default branch untouched', async () => {
     const { dir, bareDir } = await initFixture('0.0.122')
     try {
+      const mainBefore = await revParse(bareDir, 'refs/heads/main')
+
       const result = await prepare(dir, {
         eventName: 'workflow_dispatch',
-        requestedVersion: '0.0.123',
+        requestedVersion: '0.0.124',
       })
 
       expect(result.code, result.stderr || result.stdout).toBe(0)
-      const output = parseOutput(result.stdout)
-      expect(output).toMatchObject({
-        version: '0.0.123',
-        tag: 'agent-server/v0.0.123',
+      expect(parseOutput(result.stdout)).toMatchObject({
+        version: '0.0.124',
+        tag: 'agent-server/v0.0.124',
+        release_sha: mainBefore,
         previous_tag: '',
       })
+
+      // The default branch must be identical — no bump commit, no branch push.
+      expect(await revParse(bareDir, 'refs/heads/main')).toBe(mainBefore)
       expect(
-        await mustRun(dir, ['git', 'show', `origin/main:${packagePath}`]),
-      ).toContain('"version": "0.0.123"')
-      expect(
-        await mustRun(dir, ['git', 'show', `origin/main:${lockPath}`]),
-      ).toContain('"version": "0.0.123"')
+        await mustRun(bareDir, [
+          'git',
+          'show',
+          `refs/heads/main:${packagePath}`,
+        ]),
+      ).toContain('"version": "0.0.122"')
+
+      // Only the annotated tag was published, pointing at the default-branch head.
       expect(
         (
-          await mustRun(dir, [
+          await mustRun(bareDir, [
             'git',
             'cat-file',
             '-t',
-            'refs/tags/agent-server/v0.0.123',
+            'refs/tags/agent-server/v0.0.124',
           ])
         ).trim(),
       ).toBe('tag')
-      expect(
-        (
-          await mustRun(dir, [
-            'git',
-            'rev-list',
-            '-n',
-            '1',
-            'agent-server/v0.0.123',
-          ])
-        ).trim(),
-      ).toBe((await mustRun(dir, ['git', 'rev-parse', 'origin/main'])).trim())
+      expect(await revParse(bareDir, 'agent-server/v0.0.124^{commit}')).toBe(
+        mainBefore,
+      )
     } finally {
       rmSync(dir, { recursive: true, force: true })
       rmSync(bareDir, { recursive: true, force: true })
     }
   })
 
-  it('creates a manual tag for the current package version without preconfigured identity', async () => {
+  it('creates the release tag without a preconfigured git identity', async () => {
     const { dir, bareDir } = await initFixture('0.0.123')
     try {
-      const releaseSha = (
-        await mustRun(dir, ['git', 'rev-parse', 'HEAD'])
-      ).trim()
+      const releaseSha = await revParse(dir, 'HEAD')
       await mustRun(dir, ['git', 'config', '--unset', 'user.name'])
       await mustRun(dir, ['git', 'config', '--unset', 'user.email'])
 
       const result = await prepare(dir, {
         eventName: 'workflow_dispatch',
-        requestedVersion: '0.0.123',
+        requestedVersion: '0.0.124',
       })
 
       expect(result.code, result.stderr || result.stdout).toBe(0)
       expect(parseOutput(result.stdout)).toMatchObject({
-        version: '0.0.123',
-        tag: 'agent-server/v0.0.123',
+        version: '0.0.124',
+        tag: 'agent-server/v0.0.124',
         release_sha: releaseSha,
       })
-      expect(
-        (
-          await mustRun(dir, [
-            'git',
-            'rev-list',
-            '-n',
-            '1',
-            'agent-server/v0.0.123',
-          ])
-        ).trim(),
-      ).toBe(releaseSha)
-      expect(
-        (await mustRun(dir, ['git', 'rev-parse', 'origin/main'])).trim(),
-      ).toBe(releaseSha)
+      expect(await revParse(bareDir, 'agent-server/v0.0.124^{commit}')).toBe(
+        releaseSha,
+      )
+      expect(await revParse(bareDir, 'refs/heads/main')).toBe(releaseSha)
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+      rmSync(bareDir, { recursive: true, force: true })
+    }
+  })
+
+  it('re-resolves an already published release tag without recreating it', async () => {
+    const { dir, bareDir } = await initFixture('0.0.123')
+    try {
+      const releaseSha = await revParse(dir, 'HEAD')
+      await tag(dir, 'agent-server/v0.0.124')
+      await mustRun(dir, ['git', 'push', 'origin', 'agent-server/v0.0.124'])
+
+      const result = await prepare(dir, {
+        eventName: 'workflow_dispatch',
+        requestedVersion: '0.0.124',
+      })
+
+      expect(result.code, result.stderr || result.stdout).toBe(0)
+      expect(parseOutput(result.stdout)).toMatchObject({
+        version: '0.0.124',
+        tag: 'agent-server/v0.0.124',
+        release_sha: releaseSha,
+        previous_tag: '',
+      })
+      expect(await revParse(bareDir, 'refs/heads/main')).toBe(releaseSha)
     } finally {
       rmSync(dir, { recursive: true, force: true })
       rmSync(bareDir, { recursive: true, force: true })
@@ -234,6 +252,28 @@ describe('prepare-server-release', () => {
         version: '0.0.123',
         tag: 'agent-server/v0.0.123',
         previous_tag: 'agent-server/v0.0.122',
+      })
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+      rmSync(bareDir, { recursive: true, force: true })
+    }
+  })
+
+  it('resolves a pushed tag even when package.json does not match the version', async () => {
+    const { dir, bareDir } = await initFixture('0.0.122')
+    try {
+      await tag(dir, 'agent-server/v0.0.123')
+      await mustRun(dir, ['git', 'push', 'origin', 'main', '--tags'])
+
+      const result = await prepare(dir, {
+        eventName: 'push',
+        refName: 'agent-server/v0.0.123',
+      })
+
+      expect(result.code, result.stderr || result.stdout).toBe(0)
+      expect(parseOutput(result.stdout)).toMatchObject({
+        version: '0.0.123',
+        tag: 'agent-server/v0.0.123',
       })
     } finally {
       rmSync(dir, { recursive: true, force: true })
@@ -284,9 +324,12 @@ describe('prepare-server-release', () => {
     }
   })
 
-  it('rejects manual downgrades below the current package version', async () => {
-    const { dir, bareDir } = await initFixture('0.0.124')
+  it('rejects a manual dispatch that does not increment past the latest tag', async () => {
+    const { dir, bareDir } = await initFixture('0.0.123')
     try {
+      await tag(dir, 'agent-server/v0.0.124')
+      await mustRun(dir, ['git', 'push', 'origin', 'main', '--tags'])
+
       const result = await prepare(dir, {
         eventName: 'workflow_dispatch',
         requestedVersion: '0.0.123',
@@ -294,28 +337,7 @@ describe('prepare-server-release', () => {
 
       expect(result.code).toBe(1)
       expect(outputText(result)).toContain(
-        'Requested server version 0.0.123 is lower than packages/browseros-agent/apps/server/package.json (0.0.124)',
-      )
-    } finally {
-      rmSync(dir, { recursive: true, force: true })
-      rmSync(bareDir, { recursive: true, force: true })
-    }
-  })
-
-  it('rejects a pushed tag whose package version does not match', async () => {
-    const { dir, bareDir } = await initFixture('0.0.122')
-    try {
-      await tag(dir, 'agent-server/v0.0.123')
-      await mustRun(dir, ['git', 'push', 'origin', 'main', '--tags'])
-
-      const result = await prepare(dir, {
-        eventName: 'push',
-        refName: 'agent-server/v0.0.123',
-      })
-
-      expect(result.code).toBe(1)
-      expect(outputText(result)).toContain(
-        'packages/browseros-agent/apps/server/package.json at agent-server/v0.0.123 is 0.0.122, expected 0.0.123',
+        'Release version 0.0.123 must be greater than latest existing server version 0.0.124 (agent-server/v0.0.124)',
       )
     } finally {
       rmSync(dir, { recursive: true, force: true })

@@ -7,12 +7,13 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Release version, e.g. 0.0.123"
+        description: "Release version, e.g. 0.0.124"
         required: true
         type: string
 
 permissions:
   contents: write
+  pull-requests: write
 
 concurrency:
   group: release-server
@@ -81,3 +82,67 @@ jobs:
               --title "$TITLE" \
               --notes-file /tmp/release-notes.md
           fi
+
+      # Reflect the released version back into the repo through a PR. Repository
+      # rules forbid pushing commits straight to the default branch, so the bump
+      # never touches it directly. This is best-effort (continue-on-error): the
+      # release above is authoritative, and releases are gated by tags, not by
+      # this file, so a failed bump PR must not fail the release.
+      - name: Reflect version on main via PR
+        if: steps.release.outputs.version != ''
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch || 'main' }}
+          VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          set -euo pipefail
+
+          PACKAGE_JSON="packages/browseros-agent/apps/server/package.json"
+          LOCK="packages/browseros-agent/bun.lock"
+          BRANCH="release/bump-server-v${VERSION}"
+
+          git fetch origin "$DEFAULT_BRANCH" --no-tags
+          git checkout -B "$DEFAULT_BRANCH" "origin/$DEFAULT_BRANCH"
+
+          CURRENT="$(node -e 'const fs = require("fs"); process.stdout.write(JSON.parse(fs.readFileSync(process.argv[1], "utf8")).version)' "$PACKAGE_JSON")"
+          if [ "$CURRENT" = "$VERSION" ]; then
+            echo "$PACKAGE_JSON already at $VERSION; nothing to bump."
+            exit 0
+          fi
+
+          if git ls-remote --exit-code --heads origin "$BRANCH" >/dev/null 2>&1; then
+            echo "Branch $BRANCH already exists; bump PR already open."
+            exit 0
+          fi
+
+          node -e '
+          const fs = require("fs");
+          const [pkgPath, lockPath, version] = process.argv.slice(1);
+          const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf8"));
+          pkg.version = version;
+          fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + "\n");
+          let lock = fs.readFileSync(lockPath, "utf8");
+          const re = /("apps\/server":\s*\{\s*"name":\s*"@browseros\/server",\s*"version":\s*")(\d+\.\d+\.\d+)(")/g;
+          const matches = lock.match(re);
+          if (!matches || matches.length !== 1) {
+            console.error("Expected exactly one apps/server version entry in bun.lock, found " + (matches ? matches.length : 0));
+            process.exit(1);
+          }
+          fs.writeFileSync(lockPath, lock.replace(re, (match, prefix, _old, suffix) => prefix + version + suffix));
+          ' "$PACKAGE_JSON" "$LOCK" "$VERSION"
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -b "$BRANCH"
+          git add "$PACKAGE_JSON" "$LOCK"
+          git commit -m "chore: bump server version to ${VERSION}"
+          git push origin "$BRANCH"
+
+          gh pr create \
+            --title "chore: bump server version to ${VERSION}" \
+            --body "Automated version bump for BrowserOS Server v${VERSION}, released from tag agent-server/v${VERSION}. The release is already published; merge this to keep apps/server/package.json in sync with the released version." \
+            --base "$DEFAULT_BRANCH" \
+            --head "$BRANCH"
+
+          gh pr merge "$BRANCH" --squash --auto || true

@@ -30,6 +30,28 @@ from .paths import get_package_root
 
 
 # =============================================================================
+# Update feed versioning
+# =============================================================================
+#
+# resources/BROWSEROS_VERSION is the single source of update identity. The
+# feed version is "10000.MAJOR.MINOR.BUILD.PATCH": carried in the appcast's
+# sparkle:version, stamped into CFBundleVersion before signing (what Sparkle
+# compares), and mirrored by chrome/browser/win/winsparkle_glue.cc for
+# WinSparkle. The fixed 10000 epoch sorts above the retired feed scheme
+# (chromium BUILD.PATCH inflated by BROWSEROS_BUILD_OFFSET, ~7950.97 at
+# cutover) so already-shipped clients keep seeing new releases as upgrades.
+#
+# chrome/VERSION deliberately keeps the BUILD+offset scheme on every
+# platform: the Windows installer needs a unique, monotonically increasing
+# install version per release (versioned install dir + downgrade guard
+# against registry versions already shipped in the offset space), and one
+# uniform scheme everywhere beats a per-platform split. The updaters no
+# longer read it — which also means a release that bumps only the offset is
+# invisible to updaters; every release must bump the BrowserOS version.
+UPDATE_FEED_EPOCH = 10000
+
+
+# =============================================================================
 # Sub-Components - New modular structure
 # =============================================================================
 
@@ -190,6 +212,7 @@ class Context:
     build_type: str = "debug"
     chromium_version: str = ""
     browseros_build_offset: str = ""
+    browseros_version_parts: tuple = ()  # (major, minor, build, patch) ints
     browseros_chromium_version: str = ""
     semantic_version: str = ""  # e.g., "0.31.0" from resources/BROWSEROS_VERSION
     release_version: str = (
@@ -283,9 +306,13 @@ class Context:
                 self.root_dir
             )
 
-        # Load semantic version from resources/BROWSEROS_VERSION
+        # Load semantic version + parts from resources/BROWSEROS_VERSION
         if not self.semantic_version:
             self.semantic_version = self._load_semantic_version(self.root_dir)
+        if not self.browseros_version_parts:
+            self.browseros_version_parts = self._load_browseros_version_parts(
+                self.root_dir
+            )
 
         # Set nxtscape_chromium_version as chromium version with BUILD + nxtscape_version
         if self.chromium_version and self.browseros_build_offset and version_dict:
@@ -355,6 +382,26 @@ class Context:
         if version_file.exists():
             return version_file.read_text().strip()
         return ""
+
+    @staticmethod
+    def _load_browseros_version_parts(root_dir: Path) -> tuple:
+        """Load (major, minor, build, patch) ints from resources/BROWSEROS_VERSION."""
+        version_file = join_paths(root_dir, "resources", "BROWSEROS_VERSION")
+        if not version_file.exists():
+            return ()
+
+        version_dict = {}
+        for line in version_file.read_text().strip().split("\n"):
+            line = line.strip()
+            if not line or "=" not in line:
+                continue
+            key, value = line.split("=", 1)
+            version_dict[key.strip()] = value.strip()
+
+        return tuple(
+            int(version_dict.get(f"BROWSEROS_{key}", "0"))
+            for key in ("MAJOR", "MINOR", "BUILD", "PATCH")
+        )
 
     @staticmethod
     def _load_semantic_version(root_dir: Path) -> str:
@@ -528,20 +575,19 @@ class Context:
         return self.semantic_version
 
     def get_sparkle_version(self) -> str:
-        """Get Sparkle-compatible version from browseros_chromium_version
+        """Update feed version compared by Sparkle/WinSparkle.
 
-        Sparkle uses BUILD.PATCH format for version comparison.
-        Returns: e.g., "7231.69"
+        Epoch-prefixed BrowserOS version (see version derivation notes at
+        the top of this module). Stamped into CFBundleVersion at signing,
+        mirrored by chrome/browser/win/winsparkle_glue.cc, and carried in
+        the appcast's sparkle:version — the three must stay in lockstep.
+        Returns: e.g., "10000.0.47.0.2"
         """
-        if not self.browseros_chromium_version:
-            raise ValueError("browseros_chromium_version is not set")
+        if not self.browseros_version_parts:
+            raise ValueError("resources/BROWSEROS_VERSION was not loaded")
 
-        parts = self.browseros_chromium_version.split(".")
-        if len(parts) < 4:
-            raise ValueError(
-                f"Invalid browseros_chromium_version format: {self.browseros_chromium_version}"
-            )
-        return f"{parts[2]}.{parts[3]}"
+        major, minor, build, patch = self.browseros_version_parts
+        return f"{UPDATE_FEED_EPOCH}.{major}.{minor}.{build}.{patch}"
 
     def get_release_path(self, platform: str) -> str:
         """Get R2 path for release artifacts

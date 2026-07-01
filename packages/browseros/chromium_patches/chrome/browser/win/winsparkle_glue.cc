@@ -1,9 +1,9 @@
 diff --git a/chrome/browser/win/winsparkle_glue.cc b/chrome/browser/win/winsparkle_glue.cc
 new file mode 100644
-index 0000000000000..869ed71be8869
+index 0000000000000..36d8f7ba9d353
 --- /dev/null
 +++ b/chrome/browser/win/winsparkle_glue.cc
-@@ -0,0 +1,351 @@
+@@ -0,0 +1,355 @@
 +// Copyright 2024 BrowserOS Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style license that can be
 +// found in the LICENSE file.
@@ -15,7 +15,6 @@ index 0000000000000..869ed71be8869
 +#include <stdint.h>
 +
 +#include <string>
-+#include <vector>
 +
 +#include "base/command_line.h"
 +#include "base/files/file_path.h"
@@ -26,12 +25,11 @@ index 0000000000000..869ed71be8869
 +#include "base/path_service.h"
 +#include "base/process/launch.h"
 +#include "base/process/process.h"
-+#include "base/strings/string_number_conversions.h"
++#include "base/strings/strcat.h"
 +#include "base/strings/utf_string_conversions.h"
 +#include "base/task/single_thread_task_runner.h"
 +#include "base/task/thread_pool.h"
 +#include "base/time/time.h"
-+#include "base/version.h"
 +#include "base/version_info/version_info.h"
 +#include "build/build_config.h"
 +#include "content/public/browser/browser_thread.h"
@@ -60,6 +58,19 @@ index 0000000000000..869ed71be8869
 +constexpr int kUpdateCheckIntervalSeconds = 3600;
 +
 +constexpr char kRegistryPath[] = "Software\\BrowserOS\\WinSparkle";
++
++// Version compared against the appcast's sparkle:version: the BrowserOS
++// version behind a fixed epoch component. The epoch keeps new releases
++// sorting above the retired scheme where feeds carried chromium's
++// BUILD.PATCH inflated by BROWSEROS_BUILD_OFFSET (frozen at ~7950.97 at
++// cutover), so already-installed clients still see new releases as
++// upgrades. macOS bakes the identical string into CFBundleVersion at
++// packaging, and the appcast generator derives it in
++// Context.get_sparkle_version() (BrowserOS repo, build/common/context.py);
++// all three must stay in lockstep.
++std::string GetUpdateFeedVersion() {
++  return base::StrCat({"10000.", version_info::GetBrowserOSVersionNumber()});
++}
 +
 +// Owns WinSparkle state for the browser process. All public methods are UI
 +// thread only; Notify* run on the UI thread via PostToUI from WinSparkle's
@@ -273,22 +284,15 @@ index 0000000000000..869ed71be8869
 +    return false;
 +  }
 +
-+  // Display version for WinSparkle UI / User-Agent; comparisons use the
-+  // BUILD.PATCH build version below, which is what the appcast carries in
-+  // sparkle:version (same scheme as CFBundleVersion on macOS).
++  // WinSparkle UI / User-Agent shows the BrowserOS release version;
++  // comparisons use the epoch-prefixed feed version below.
 +  const std::wstring display_version =
-+      base::UTF8ToWide(version_info::GetVersionNumber());
++      base::UTF8ToWide(version_info::GetBrowserOSVersionNumber());
 +  win_sparkle_set_app_details(L"BrowserOS", L"BrowserOS",
 +                              display_version.c_str());
 +
-+  const std::vector<uint32_t>& components =
-+      version_info::GetVersion().components();
-+  if (components.size() >= 4) {
-+    const std::wstring build_version =
-+        base::UTF8ToWide(base::NumberToString(components[2]) + "." +
-+                         base::NumberToString(components[3]));
-+    win_sparkle_set_app_build_version(build_version.c_str());
-+  }
++  const std::wstring build_version = base::UTF8ToWide(GetUpdateFeedVersion());
++  win_sparkle_set_app_build_version(build_version.c_str());
 +
 +  win_sparkle_set_registry_path(kRegistryPath);
 +

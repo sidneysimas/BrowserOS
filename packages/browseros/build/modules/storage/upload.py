@@ -104,7 +104,7 @@ def generate_release_json(
     }
 
     # Sparkle (macOS) and WinSparkle (Windows) both compare against this
-    # BUILD.PATCH version in the appcast.
+    # epoch-prefixed BrowserOS version in the appcast (Context.get_sparkle_version).
     if platform in ("macos", "win"):
         release_data["sparkle_version"] = ctx.get_sparkle_version()
 

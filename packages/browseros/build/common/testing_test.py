@@ -206,6 +206,7 @@ class MakeContextTest(unittest.TestCase):
             # BUILD 7151 + offset 80 = 7231
             self.assertEqual(ctx.browseros_chromium_version, "137.0.7231.69")
             self.assertEqual(ctx.semantic_version, "0.31.0")
+            self.assertEqual(ctx.get_sparkle_version(), "10000.0.31.0.0")
             self.assertEqual(
                 ctx.get_features_yaml_path(), r.root / "build" / "features.yaml"
             )

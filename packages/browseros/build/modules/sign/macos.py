@@ -180,6 +180,7 @@ class MacOSSignModule(CommandModule):
         env_ok, env_vars = check_environment(ctx.env)
 
         self._verify_server_resources(app_path, ctx)
+        self._stamp_update_versions(app_path, ctx)
         self._clear_extended_attributes(app_path)
         self._sign_all_components(app_path, env_vars["certificate_name"], ctx)
         self._verify_signature(app_path, ctx)
@@ -187,6 +188,32 @@ class MacOSSignModule(CommandModule):
 
         ctx.artifact_registry.add("signed_app", app_path)
         log_success("Application signed and notarized successfully")
+
+    def _stamp_update_versions(self, app_path: Path, ctx: Context) -> None:
+        """Bake the update identity into the outer bundle before signing.
+
+        Sparkle compares the appcast's sparkle:version against
+        CFBundleVersion, so it must carry the epoch-prefixed BrowserOS
+        version (Context.get_sparkle_version) — the chromium build stamps
+        BUILD.PATCH there, which belongs to the retired offset scheme.
+        CFBundleShortVersionString is what Finder and Sparkle show users.
+        """
+        info_plist = app_path / "Contents" / "Info.plist"
+        feed_version = ctx.get_sparkle_version()
+        display_version = ctx.get_semantic_version()
+
+        run_command(
+            ["plutil", "-replace", "CFBundleVersion", "-string",
+             feed_version, str(info_plist)]
+        )
+        run_command(
+            ["plutil", "-replace", "CFBundleShortVersionString", "-string",
+             display_version, str(info_plist)]
+        )
+        log_info(
+            f"🏷️  Stamped CFBundleVersion={feed_version}, "
+            f"CFBundleShortVersionString={display_version}"
+        )
 
     def _verify_server_resources(self, app_path: Path, ctx: Context) -> None:
         problems = verify_server_resources_bundle(

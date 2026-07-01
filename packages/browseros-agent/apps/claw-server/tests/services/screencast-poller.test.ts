@@ -20,7 +20,10 @@ import { screencastCache } from '../../src/services/screencast-cache'
 
 interface FakeResult {
   isError: boolean
-  content: { type: string; text: string }[]
+  content: (
+    | { type: 'text'; text: string }
+    | { type: 'image'; data: string; mimeType: string }
+  )[]
   structuredContent?: unknown
 }
 
@@ -41,8 +44,8 @@ function queueFor(pageId: number, ...rs: FakeResult[]): void {
 function ok(image: string): FakeResult {
   return {
     isError: false,
-    content: [{ type: 'text', text: 'ok' }],
-    structuredContent: { image },
+    content: [{ type: 'image', data: image, mimeType: 'image/jpeg' }],
+    structuredContent: { page: 1, format: 'jpeg' },
   }
 }
 

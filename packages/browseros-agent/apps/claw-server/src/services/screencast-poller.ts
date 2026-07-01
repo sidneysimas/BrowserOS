@@ -37,6 +37,7 @@ import {
   type TabActivityRegistry,
 } from '../lib/tab-activity'
 import { screencastCache } from './screencast-cache'
+import { extractToolResultImageData } from './tool-result-image'
 
 export const DEFAULT_POLL_INTERVAL_MS = 1500
 export const SCREENSHOT_TIMEOUT_MS = 2000
@@ -180,7 +181,7 @@ async function snapOne(
       }
       return
     }
-    const image = extractImage(result.structuredContent)
+    const image = extractToolResultImageData(result)
     if (!image) {
       if (screencastCache.markFailure(pageId)) {
         screencastCache.clearFrame(pageId)
@@ -202,14 +203,6 @@ async function snapOne(
       screencastCache.delete(pageId)
     }
   }
-}
-
-function extractImage(structured: unknown): string | null {
-  if (!structured || typeof structured !== 'object') return null
-  const sc = structured as Record<string, unknown>
-  const image = sc.image
-  if (typeof image !== 'string' || image.length === 0) return null
-  return image
 }
 
 function estimateBase64Bytes(b64: string): number {

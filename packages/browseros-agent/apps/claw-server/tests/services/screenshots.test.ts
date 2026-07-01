@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: AGPL-3.0-or-later
  */
 
-import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
+import { describe, expect, it } from 'bun:test'
 import { existsSync, readFileSync } from 'node:fs'
 import {
   persistScreenshot,
@@ -16,23 +16,24 @@ const ONE_PX_JPEG_B64 =
   '/9j/4AAQSkZJRgABAQEASABIAAD/2wBDAAMCAgICAgMCAgIDAwMDBAYEBAQEBAgGBgUGCQgKCgkICQkKDA8MCgsOCwkJDRENDg8QEBEQCgwSExIQEw8QEBD/2wBDAQMDAwQDBAgEBAgQCwkLEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBD/wAARCAABAAEDASIAAhEBAxEB/8QAFQABAQAAAAAAAAAAAAAAAAAAAAr/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/8QAFAEBAAAAAAAAAAAAAAAAAAAAAP/EABQRAQAAAAAAAAAAAAAAAAAAAAD/2gAMAwEAAhEDEQA/AKpAA//Z'
 
 describe('persistScreenshot', () => {
-  beforeEach(() => {
-    // each test sets its own tmp dir via withTempBrowserosDir
-  })
-  afterEach(() => {})
-
-  it('writes <dispatchId>.jpg under the screenshots dir', async () => {
+  it('writes <dispatchId>.jpg from image content', async () => {
     await withTempBrowserosDir(async () => {
       persistScreenshot({
         dispatchId: 42,
         toolName: 'screenshot',
         result: {
           isError: false,
+          content: [
+            {
+              type: 'image',
+              data: ONE_PX_JPEG_B64,
+              mimeType: 'image/jpeg',
+            },
+          ],
           structuredContent: {
             page: 1,
             format: 'jpeg',
             bytes: 0,
-            image: ONE_PX_JPEG_B64,
           },
         },
       })
@@ -51,7 +52,14 @@ describe('persistScreenshot', () => {
         toolName: 'snapshot',
         result: {
           isError: false,
-          structuredContent: { image: ONE_PX_JPEG_B64 },
+          content: [
+            {
+              type: 'image',
+              data: ONE_PX_JPEG_B64,
+              mimeType: 'image/jpeg',
+            },
+          ],
+          structuredContent: {},
         },
       })
       await new Promise((r) => setTimeout(r, 30))
@@ -66,7 +74,14 @@ describe('persistScreenshot', () => {
         toolName: 'screenshot',
         result: {
           isError: true,
-          structuredContent: { image: ONE_PX_JPEG_B64 },
+          content: [
+            {
+              type: 'image',
+              data: ONE_PX_JPEG_B64,
+              mimeType: 'image/jpeg',
+            },
+          ],
+          structuredContent: {},
         },
       })
       await new Promise((r) => setTimeout(r, 30))
@@ -74,18 +89,36 @@ describe('persistScreenshot', () => {
     })
   })
 
-  it('no-op when structured image is missing', async () => {
+  it('no-op when image content is missing', async () => {
     await withTempBrowserosDir(async () => {
       persistScreenshot({
         dispatchId: 3,
         toolName: 'screenshot',
         result: {
           isError: false,
+          content: [{ type: 'text', text: 'no image here' }],
           structuredContent: { page: 1, format: 'jpeg' },
         },
       })
       await new Promise((r) => setTimeout(r, 30))
       expect(existsSync(screenshotPath(3))).toBe(false)
+    })
+  })
+
+  it('falls back to legacy structured image data', async () => {
+    await withTempBrowserosDir(async () => {
+      persistScreenshot({
+        dispatchId: 4,
+        toolName: 'screenshot',
+        result: {
+          isError: false,
+          content: [],
+          structuredContent: { image: ONE_PX_JPEG_B64 },
+        },
+      })
+      await new Promise((r) => setTimeout(r, 50))
+      expect(existsSync(screenshotPath(4))).toBe(true)
+      expect(readFileSync(screenshotPath(4)).length).toBeGreaterThan(0)
     })
   })
 })

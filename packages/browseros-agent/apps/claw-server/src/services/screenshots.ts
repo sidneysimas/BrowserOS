@@ -18,6 +18,7 @@ import { writeFile } from 'node:fs/promises'
 import { dirname } from 'node:path'
 import { resolveClawServerPath } from '../lib/browseros-dir'
 import { logger } from '../lib/logger'
+import { extractToolResultImageData } from './tool-result-image'
 
 export function screenshotPath(dispatchId: number): string {
   return resolveClawServerPath('screenshots', `${dispatchId}.jpg`)
@@ -28,19 +29,19 @@ export interface PersistScreenshotInput {
   toolName: string
   result: {
     isError: boolean
-    structuredContent: unknown
+    content?: unknown
+    structuredContent?: unknown
   }
 }
 
 /**
  * Fire-and-forget. Never throws.
- * No-op for non-screenshot tools, error results, or results without
- * a base64 image string.
+ * No-op for non-screenshot tools, error results, or results without image data.
  */
 export function persistScreenshot(input: PersistScreenshotInput): void {
   if (input.toolName !== 'screenshot') return
   if (input.result.isError) return
-  const bytes = extractImageBytes(input.result.structuredContent)
+  const bytes = extractImageBytes(input.result)
   if (!bytes) return
   const path = screenshotPath(input.dispatchId)
   try {
@@ -60,11 +61,11 @@ export function persistScreenshot(input: PersistScreenshotInput): void {
   })
 }
 
-function extractImageBytes(structured: unknown): Buffer | null {
-  if (!structured || typeof structured !== 'object') return null
-  const sc = structured as Record<string, unknown>
-  const image = sc.image
-  if (typeof image !== 'string' || image.length === 0) return null
+function extractImageBytes(
+  result: PersistScreenshotInput['result'],
+): Buffer | null {
+  const image = extractToolResultImageData(result)
+  if (!image) return null
   try {
     return Buffer.from(image, 'base64')
   } catch {

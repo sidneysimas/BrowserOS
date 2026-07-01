@@ -262,7 +262,7 @@ export function registerBrowserTools(
           })
         }
         return {
-          content: result.content as ToolResult['content'],
+          content: result.content,
           isError: result.isError,
           structuredContent: result.structuredContent,
         }
@@ -512,6 +512,7 @@ export function registerBrowserToolsForSingleServer(
                 toolName: tool.name,
                 result: {
                   isError: result.isError ?? false,
+                  content: result.content,
                   structuredContent: result.structuredContent,
                 },
               })
@@ -569,7 +570,7 @@ export function registerBrowserToolsForSingleServer(
         }
 
         return {
-          content: result.content as ToolResult['content'],
+          content: result.content,
           isError: result.isError,
           structuredContent: result.structuredContent,
         }

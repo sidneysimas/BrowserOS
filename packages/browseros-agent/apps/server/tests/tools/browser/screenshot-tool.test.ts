@@ -74,7 +74,6 @@ describe('screenshot tool', () => {
       page: 3,
       format: 'jpeg',
       bytes: Buffer.from('jpeg-data', 'base64').length,
-      image: 'jpeg-data',
     })
   })
 
@@ -116,7 +115,6 @@ describe('screenshot tool', () => {
       page: 3,
       format: 'jpeg',
       bytes: Buffer.from('jpeg-data', 'base64').length,
-      image: 'jpeg-data',
     })
   })
 })

@@ -12,13 +12,11 @@
  * Same workaround `@browseros/browser-mcp/register` uses.
  */
 
+import type { ContentItem } from '@browseros/browser-mcp/response'
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import type { ZodRawShape } from 'zod'
 
-export type ToolResultContent = {
-  type: 'text'
-  text: string
-}
+export type ToolResultContent = ContentItem
 
 export interface ToolResult {
   content: ToolResultContent[]

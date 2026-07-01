@@ -90,7 +90,6 @@ export const screenshot = defineTool({
         page: args.page,
         format: args.format,
         bytes: Buffer.from(result.data, 'base64').length,
-        image: result.data,
         ...(result.annotations.length > 0 && {
           annotations: result.annotations,
         }),

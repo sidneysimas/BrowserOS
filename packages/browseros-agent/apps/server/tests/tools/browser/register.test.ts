@@ -158,7 +158,6 @@ describe('registerBrowserTools', () => {
         page: 1,
         format: 'jpeg',
         bytes: Buffer.from('jpeg-data', 'base64').length,
-        image: 'jpeg-data',
       },
     })
     await expect(
@@ -173,7 +172,6 @@ describe('registerBrowserTools', () => {
         page: 1,
         format: 'jpeg',
         bytes: Buffer.from('jpeg-data', 'base64').length,
-        image: 'jpeg-data',
       },
     })
     expect(captureOptions).toEqual([
@@ -260,7 +258,6 @@ describe('registerBrowserTools', () => {
         page: 1,
         format: 'png',
         bytes: Buffer.from('png-data', 'base64').length,
-        image: 'png-data',
       },
     })
     await expect(
@@ -271,7 +268,6 @@ describe('registerBrowserTools', () => {
         page: 1,
         format: 'jpeg',
         bytes: Buffer.from('jpeg-data', 'base64').length,
-        image: 'jpeg-data',
       },
     })
 

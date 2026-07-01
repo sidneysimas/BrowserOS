@@ -35,8 +35,8 @@ function dispatch(
     durationMs: 5,
     result: {
       isError: opts.isError ?? false,
-      structuredContent: { image: 'AAA' },
-      content: null,
+      structuredContent: {},
+      content: [{ type: 'image', data: 'AAA', mimeType: 'image/jpeg' }],
     },
   })
 }

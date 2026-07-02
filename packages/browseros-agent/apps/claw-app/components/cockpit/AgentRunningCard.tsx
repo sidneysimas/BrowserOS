@@ -22,8 +22,8 @@ interface AgentRunningCardProps {
  * a dark caption block at the bottom carries the agent identity,
  * the current tool, and Watch / Stop actions as inline chips.
  *
- * LIVE indicator uses the app's accent orange with a pulsing dot,
- * not a green pill; the whole app has one accent color.
+ * LIVE indicator uses the light palette green (#b1dbb8), not the
+ * brand accent: #0f3e17 is near-invisible on the dark caption block.
  */
 export function AgentRunningCard({
   agent,
@@ -50,17 +50,17 @@ export function AgentRunningCard({
           <TabCountChip tabs={agent.tabs} focusTargetId={focus.targetId} />
         </div>
       </div>
-      <div className="flex flex-col gap-1.5 bg-ink px-4 py-3 text-white">
+      <div className="flex flex-col gap-1.5 bg-ink-deep px-4 py-3 text-white">
         <div className="flex items-center gap-3 font-mono text-[10.5px] text-white/80 uppercase tracking-[0.08em]">
           <span className="inline-flex items-center gap-1.5">
             <AgentDot slug={agent.slug} />
             <span className="text-white">{agent.agentLabel}</span>
           </span>
           {active && (
-            <span className="inline-flex items-center gap-1.5 text-accent">
+            <span className="inline-flex items-center gap-1.5 text-[#b1dbb8]">
               <span
                 aria-hidden
-                className="inline-block size-1.5 animate-[pulse-dot_1.4s_ease-in-out_infinite] rounded-full bg-accent shadow-[0_0_8px_hsl(19_89%_56%/0.7)]"
+                className="inline-block size-1.5 animate-[pulse-dot_1.4s_ease-in-out_infinite] rounded-full bg-[#b1dbb8] shadow-[0_0_8px_hsl(130_37%_78%/0.7)]"
               />
               LIVE
             </span>

@@ -46,7 +46,7 @@ export function AuditHoverPreview({ task }: AuditHoverPreviewProps) {
         ) : null}
       </div>
       {task && (
-        <div className="flex flex-col gap-0.5 bg-ink px-4 py-3 text-white">
+        <div className="flex flex-col gap-0.5 bg-ink-deep px-4 py-3 text-white">
           <div className="flex items-center gap-2 font-mono text-[10px] text-white/75 uppercase tracking-[0.08em]">
             <AgentDot slug={task.slug} />
             <span className="truncate text-white/95">{task.agentLabel}</span>
@@ -89,10 +89,10 @@ function NoShotComposition({ task }: { task: TaskSummary }) {
 
 function LiveDot() {
   return (
-    <span className="inline-flex items-center gap-1 text-accent">
+    <span className="inline-flex items-center gap-1 text-[#b1dbb8]">
       <span
         aria-hidden
-        className="inline-block size-1.5 animate-[pulse-dot_1.4s_ease-in-out_infinite] rounded-full bg-accent"
+        className="inline-block size-1.5 animate-[pulse-dot_1.4s_ease-in-out_infinite] rounded-full bg-[#b1dbb8]"
       />
       LIVE
     </span>

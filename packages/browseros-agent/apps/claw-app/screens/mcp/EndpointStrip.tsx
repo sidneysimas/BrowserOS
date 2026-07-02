@@ -44,7 +44,7 @@ export function EndpointStrip({ label, value }: EndpointStripProps) {
           </button>
         )}
       </div>
-      <div className="overflow-hidden rounded-xl bg-ink px-4 py-3">
+      <div className="overflow-hidden rounded-xl bg-ink-deep px-4 py-3">
         {hasValue ? (
           <code
             className="block truncate font-mono text-[12.5px] text-white/95"

@@ -53,7 +53,7 @@ class DownloadModule(Step):
 
     def execute(self, ctx: Context) -> None:
         version = ctx.release_version
-        metadata = fetch_all_release_metadata(version, ctx.env)
+        metadata = fetch_all_release_metadata(version, ctx.env, ctx.product.id)
 
         if not metadata:
             log_error(f"No release metadata found for version {version}")

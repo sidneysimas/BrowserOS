@@ -29,7 +29,7 @@ class AppcastModule(Step):
 
     def execute(self, ctx: Context) -> None:
         version = ctx.release_version
-        metadata = fetch_all_release_metadata(version, ctx.env)
+        metadata = fetch_all_release_metadata(version, ctx.env, ctx.product.id)
 
         if "macos" not in metadata and "win" not in metadata:
             log_info(

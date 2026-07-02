@@ -1,33 +1,18 @@
 #!/usr/bin/env python3
 """Common utilities for release modules"""
 
+import re
 import subprocess
 from datetime import datetime
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 from ..lib.env import EnvConfig
+from ..lib.utils import log_warning
 from ..core.products import ProductDescriptor, default_product_descriptor
 from ..lib.r2 import get_release_json, get_r2_client, BOTO3_AVAILABLE
 
 PLATFORMS = ["macos", "win", "linux"]
 PLATFORM_DISPLAY_NAMES = {"macos": "macOS", "win": "Windows", "linux": "Linux"}
-
-DOWNLOAD_PATH_MAPPING = {
-    "macos": {
-        "arm64": "download/BrowserOS-arm64.dmg",
-        "x64": "download/BrowserOS-x86_64.dmg",
-        "universal": "download/BrowserOS.dmg",
-    },
-    "win": {
-        "x64_installer": "download/BrowserOS_installer.exe",
-    },
-    "linux": {
-        "x64_appimage": "download/BrowserOS.AppImage",
-        "x64_deb": "download/BrowserOS.deb",
-        "arm64_appimage": "download/BrowserOS-arm64.AppImage",
-        "arm64_deb": "download/BrowserOS-arm64.deb",
-    },
-}
 
 
 def get_download_path_mapping(
@@ -35,14 +20,22 @@ def get_download_path_mapping(
 ) -> Dict[str, Dict[str, str]]:
     """Return product-specific latest-download aliases."""
     product = product or default_product_descriptor()
-    if product.id == "browseros":
-        return DOWNLOAD_PATH_MAPPING
+    prefix = product.artifact_prefix
     return {
-        platform: {
-            key: value.replace("BrowserOS", product.artifact_prefix)
-            for key, value in mapping.items()
-        }
-        for platform, mapping in DOWNLOAD_PATH_MAPPING.items()
+        "macos": {
+            "arm64": f"download/{prefix}-arm64.dmg",
+            "x64": f"download/{prefix}-x86_64.dmg",
+            "universal": f"download/{prefix}.dmg",
+        },
+        "win": {
+            "x64_installer": f"download/{prefix}_installer.exe",
+        },
+        "linux": {
+            "x64_appimage": f"download/{prefix}.AppImage",
+            "x64_deb": f"download/{prefix}.deb",
+            "arm64_appimage": f"download/{prefix}-arm64.AppImage",
+            "arm64_deb": f"download/{prefix}-arm64.deb",
+        },
     }
 
 
@@ -62,62 +55,95 @@ def fetch_all_release_metadata(
     return metadata
 
 
-def list_all_versions(env: Optional[EnvConfig] = None) -> List[str]:
-    """List all available release versions from R2.
+# Pre-product releases live at bare releases/<version>/; productized ones
+# at releases/<release_prefix>/<version>/. A version is digits-and-dots,
+# a product prefix is a name — that shape difference drives legacy detection.
+_VERSION_NAME_RE = re.compile(r"\d+(\.\d+)*")
 
-    Returns versions sorted in descending order (newest first).
-    """
+
+def version_sort_key(version: str) -> tuple:
+    """Numeric tuple key for sorting versions; non-numeric parts count as 0."""
+    parts = []
+    for part in version.split("."):
+        try:
+            parts.append(int(part))
+        except ValueError:
+            parts.append(0)
+    return tuple(parts)
+
+
+def _r2_listing_client(env: Optional[EnvConfig]) -> Optional[Tuple[object, EnvConfig]]:
     if not BOTO3_AVAILABLE:
-        return []
+        return None
 
     if env is None:
         env = EnvConfig()
 
     if not env.has_r2_config():
-        return []
+        return None
 
     client = get_r2_client(env)
     if not client:
-        return []
+        return None
 
-    versions = []
+    return client, env
+
+
+def _list_common_prefixes(client, bucket: str, prefix: str) -> List[str]:
+    """Return child names under an R2 prefix via paginated delimiter listing."""
+    names = []
     continuation_token = None
 
     while True:
-        kwargs = {
-            "Bucket": env.r2_bucket,
-            "Prefix": "releases/",
-            "Delimiter": "/",
-        }
+        kwargs = {"Bucket": bucket, "Prefix": prefix, "Delimiter": "/"}
         if continuation_token:
             kwargs["ContinuationToken"] = continuation_token
 
         try:
             response = client.list_objects_v2(**kwargs)
-        except Exception:
+        except Exception as e:
+            # A partial listing renders as "(no releases found)" — flag it.
+            log_warning(f"R2 listing failed for {prefix}: {e}")
             break
 
-        for prefix in response.get("CommonPrefixes", []):
-            # prefix looks like "releases/0.31.0/"
-            version = prefix["Prefix"].replace("releases/", "").rstrip("/")
-            if version:
-                versions.append(version)
+        for entry in response.get("CommonPrefixes", []):
+            name = entry["Prefix"].removeprefix(prefix).rstrip("/")
+            if name:
+                names.append(name)
 
         if not response.get("IsTruncated"):
             break
         continuation_token = response.get("NextContinuationToken")
 
-    # Sort versions descending (newest first) using version tuple comparison
-    def version_key(v: str) -> tuple:
-        parts = []
-        for part in v.split("."):
-            try:
-                parts.append(int(part))
-            except ValueError:
-                parts.append(0)
-        return tuple(parts)
+    return names
 
-    versions.sort(key=version_key, reverse=True)
+
+def list_all_versions(
+    release_prefix: str, env: Optional[EnvConfig] = None
+) -> List[str]:
+    """List a product's release versions from R2, newest first."""
+    resolved = _r2_listing_client(env)
+    if not resolved:
+        return []
+    client, env = resolved
+
+    versions = _list_common_prefixes(
+        client, env.r2_bucket, f"releases/{release_prefix}/"
+    )
+    versions.sort(key=version_sort_key, reverse=True)
+    return versions
+
+
+def list_legacy_versions(env: Optional[EnvConfig] = None) -> List[str]:
+    """List pre-product bare releases/<version>/ entries, newest first."""
+    resolved = _r2_listing_client(env)
+    if not resolved:
+        return []
+    client, env = resolved
+
+    names = _list_common_prefixes(client, env.r2_bucket, "releases/")
+    versions = [name for name in names if _VERSION_NAME_RE.fullmatch(name)]
+    versions.sort(key=version_sort_key, reverse=True)
     return versions
 
 

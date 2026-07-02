@@ -49,7 +49,7 @@ class FeedTableTest(unittest.TestCase):
         keys = [feed.key for feed in all_feeds()]
         self.assertEqual(len(keys), len(set(keys)))
 
-    def test_browserclaw_browser_feeds_exist_but_are_unpublishable(self):
+    def test_browserclaw_browser_feeds_are_publishable(self):
         claw_feeds = browser_feeds_for_product("browserclaw")
         self.assertEqual(
             [feed.key for feed in claw_feeds],
@@ -60,7 +60,9 @@ class FeedTableTest(unittest.TestCase):
                 "appcast-claw-win-arm64.xml",
             ],
         )
-        self.assertTrue(all(not feed.publishable for feed in claw_feeds))
+        # Publishable since the product-aware URL chromium patch: both
+        # sparkle_glue.mm and winsparkle_glue.cc select the claw feed.
+        self.assertTrue(all(feed.publishable for feed in claw_feeds))
 
     def test_browseros_browser_feeds_are_publishable(self):
         feeds = browser_feeds_for_product("browseros")

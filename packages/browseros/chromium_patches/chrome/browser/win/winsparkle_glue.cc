@@ -1,9 +1,9 @@
 diff --git a/chrome/browser/win/winsparkle_glue.cc b/chrome/browser/win/winsparkle_glue.cc
 new file mode 100644
-index 0000000000000..36d8f7ba9d353
+index 0000000000000..93e1ec7170840
 --- /dev/null
 +++ b/chrome/browser/win/winsparkle_glue.cc
-@@ -0,0 +1,355 @@
+@@ -0,0 +1,375 @@
 +// Copyright 2024 BrowserOS Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style license that can be
 +// found in the LICENSE file.
@@ -32,6 +32,7 @@ index 0000000000000..36d8f7ba9d353
 +#include "base/time/time.h"
 +#include "base/version_info/version_info.h"
 +#include "build/build_config.h"
++#include "chrome/browser/browseros/core/browseros_product.h"
 +#include "content/public/browser/browser_thread.h"
 +#include "third_party/winsparkle/include/winsparkle.h"
 +
@@ -45,19 +46,34 @@ index 0000000000000..36d8f7ba9d353
 +constexpr char kEdDSAPublicKey[] =
 +    "LzQmcNuTsdB3/dsivo0eeN+jPfDoriRHAkkEJcfFs2A=";
 +
-+// Windows builds are single-arch, so the feed is chosen at compile time
-+// (macOS picks at runtime because of universal binaries).
++// Windows builds are single-arch, so the arch half of the feed is chosen at
++// compile time (macOS picks at runtime because of universal binaries); the
++// product half follows browseros::GetProduct(). Feed keys are owned by
++// release/feeds/spec.py (_BROWSER_FEED_SLUGS) in the BrowserOS repo; keep
++// the two in lockstep.
 +#if defined(ARCH_CPU_ARM64)
 +constexpr char kAppcastURL[] =
 +    "https://cdn.browseros.com/appcast-win-arm64.xml";
++constexpr char kClawAppcastURL[] =
++    "https://cdn.browseros.com/appcast-claw-win-arm64.xml";
 +#else
 +constexpr char kAppcastURL[] = "https://cdn.browseros.com/appcast-win.xml";
++constexpr char kClawAppcastURL[] =
++    "https://cdn.browseros.com/appcast-claw-win.xml";
 +#endif
++
++const char* GetAppcastURL() {
++  return browseros::IsBrowserClawProduct() ? kClawAppcastURL : kAppcastURL;
++}
 +
 +// Matches SUScheduledCheckInterval on macOS; also WinSparkle's minimum.
 +constexpr int kUpdateCheckIntervalSeconds = 3600;
 +
++// Per-product registry state (skipped version, last check time): BrowserOS
++// and BrowserClaw install side by side, so sharing one path would
++// cross-contaminate their updaters.
 +constexpr char kRegistryPath[] = "Software\\BrowserOS\\WinSparkle";
++constexpr char kClawRegistryPath[] = "Software\\BrowserClaw\\WinSparkle";
 +
 +// Version compared against the appcast's sparkle:version: the BrowserOS
 +// version behind a fixed epoch component. The epoch keeps new releases
@@ -278,23 +294,27 @@ index 0000000000000..36d8f7ba9d353
 +
 +  ui_task_runner_ = content::GetUIThreadTaskRunner({});
 +
-+  win_sparkle_set_appcast_url(kAppcastURL);
++  const char* appcast_url = GetAppcastURL();
++  win_sparkle_set_appcast_url(appcast_url);
 +  if (!win_sparkle_set_eddsa_public_key(kEdDSAPublicKey)) {
 +    LOG(ERROR) << "WinSparkle: invalid EdDSA public key; updater disabled";
 +    return false;
 +  }
 +
++  const bool is_claw = browseros::IsBrowserClawProduct();
++
 +  // WinSparkle UI / User-Agent shows the BrowserOS release version;
 +  // comparisons use the epoch-prefixed feed version below.
 +  const std::wstring display_version =
 +      base::UTF8ToWide(version_info::GetBrowserOSVersionNumber());
-+  win_sparkle_set_app_details(L"BrowserOS", L"BrowserOS",
++  win_sparkle_set_app_details(L"BrowserOS",
++                              is_claw ? L"BrowserClaw" : L"BrowserOS",
 +                              display_version.c_str());
 +
 +  const std::wstring build_version = base::UTF8ToWide(GetUpdateFeedVersion());
 +  win_sparkle_set_app_build_version(build_version.c_str());
 +
-+  win_sparkle_set_registry_path(kRegistryPath);
++  win_sparkle_set_registry_path(is_claw ? kClawRegistryPath : kRegistryPath);
 +
 +  // Pre-seeding the automatic-check setting keeps WinSparkle from showing
 +  // its first-run permission prompt (macOS equivalent: SUEnableAutomaticChecks
@@ -318,7 +338,7 @@ index 0000000000000..36d8f7ba9d353
 +
 +  win_sparkle_init();
 +  enabled_ = true;
-+  VLOG(1) << "WinSparkle: initialized, feed " << kAppcastURL;
++  VLOG(1) << "WinSparkle: initialized, feed " << appcast_url;
 +  return true;
 +}
 +

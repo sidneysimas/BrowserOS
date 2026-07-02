@@ -76,6 +76,12 @@ class FeedSpec:
 # Browser feed key infix per product ("" keeps today's browseros keys).
 _BROWSER_FEED_SLUGS = {"browseros": "", "browserclaw": "claw"}
 
+# Products whose shipping updater selects this feed by browseros::GetProduct()
+# (sparkle_glue.mm / winsparkle_glue.cc). A product listed in
+# _BROWSER_FEED_SLUGS but missing here would ship an updater still pointing at
+# the browseros feed, so its feeds stay unpublishable until that client lands.
+_BROWSER_FEED_CLIENTS = frozenset({"browseros", "browserclaw"})
+
 # Server feed key slug per bundle (appcast-<slug>[.alpha].xml).
 _SERVER_FEED_SLUGS = {
     "browseros-server": "server",
@@ -86,9 +92,8 @@ _SERVER_FEED_SLUGS = {
 def _browser_feeds(product_id: str) -> Tuple[FeedSpec, ...]:
     """Derive the four Sparkle/WinSparkle browser feeds for one product.
 
-    Only browseros is publishable: sparkle_glue.mm / winsparkle_glue.cc
-    hardcode the browseros keys, so claw feeds have no client until the
-    product-aware URL chromium patch lands.
+    A product's feeds are publishable once its updater selects them by
+    browseros::GetProduct() — see _BROWSER_FEED_CLIENTS.
     """
     slug = _BROWSER_FEED_SLUGS.get(product_id)
     if slug is None:
@@ -98,7 +103,7 @@ def _browser_feeds(product_id: str) -> Tuple[FeedSpec, ...]:
         )
     infix = f"-{slug}" if slug else ""
     display = get_product_descriptor(product_id).display_name
-    publishable = product_id == "browseros"
+    publishable = product_id in _BROWSER_FEED_CLIENTS
 
     def feed(suffix: str, platform: str, artifact_keys: Tuple[str, ...],
              title: str) -> FeedSpec:

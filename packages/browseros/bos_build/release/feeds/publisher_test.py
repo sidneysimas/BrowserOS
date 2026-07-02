@@ -4,6 +4,7 @@
 import io
 import tempfile
 import unittest
+from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
@@ -401,7 +402,7 @@ class PublisherTestCase(unittest.TestCase):
         self.assertIsNone(absent.last_published)
 
     def test_unpublishable_spec_refuses_publish_allows_dry_run(self):
-        spec = feed_by_key("appcast-claw.xml")
+        spec = replace(feed_by_key("appcast-claw.xml"), publishable=False)
         content = render_browser_appcast(
             spec, _artifact(), "0.47.0.2", "10000.0.47.0.2", "2026-06-19T06:41:33Z"
         )

@@ -2,12 +2,15 @@
 """Tests for the full-file browser appcast module."""
 
 import unittest
+from dataclasses import replace
 from types import SimpleNamespace
 from typing import cast
+from unittest.mock import patch
 
 from ..core.context import Context
 from ..core.step import ValidationError
 from .appcast import AppcastModule
+from .feeds.spec import browser_feeds_for_product
 
 
 def _artifact(filename: str) -> dict:
@@ -157,11 +160,21 @@ class AppcastModuleTest(unittest.TestCase):
             [c.key for c in self.publisher.calls], ["appcast-claw.xml"]
         )
 
-    def test_validate_refuses_publishing_unpublishable_product(self):
-        module = AppcastModule(product_id="browserclaw", publish=True)
+    def test_validate_refuses_publishing_unpublishable_feed(self):
+        # Every real product now has a client, so synthesize an unpublishable
+        # feed set to exercise the gate itself.
+        unpublishable = tuple(
+            replace(feed, publishable=False)
+            for feed in browser_feeds_for_product("browseros")
+        )
+        module = AppcastModule(product_id="browseros", publish=True)
 
-        with self.assertRaisesRegex(ValidationError, "browserclaw"):
-            module.validate(self._ctx())
+        with patch(
+            "bos_build.release.appcast.browser_feeds_for_product",
+            return_value=unpublishable,
+        ):
+            with self.assertRaisesRegex(ValidationError, "not publishable"):
+                module.validate(self._ctx())
 
     def test_validate_requires_version(self):
         module = AppcastModule()

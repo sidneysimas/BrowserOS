@@ -2,7 +2,15 @@ import { readdir, readFile } from 'node:fs/promises'
 import path from 'node:path'
 
 const buildDir = path.resolve(import.meta.dir, '../dist/chromium')
-const allowedFiles = new Set(['app.css', 'app.js', 'index.html'])
+const textResourceFiles = ['app.css', 'app.js', 'index.html']
+const iconResourceFiles = [
+  'icon/16.png',
+  'icon/32.png',
+  'icon/48.png',
+  'icon/96.png',
+  'icon/128.png',
+]
+const allowedFiles = new Set([...textResourceFiles, ...iconResourceFiles])
 const fontAssetPattern = /\.(?:woff2?|ttf|otf)$/i
 const hashedCoreAssetPattern = /\b(?:app|index)-[A-Za-z0-9_-]{6,}\.(?:css|js)\b/
 const dataUrlPattern = /\bdata:(?:[a-z][\w.+-]*\/[a-z0-9.+-]+|;base64|,)/i
@@ -30,7 +38,12 @@ async function listResourceFiles(dir: string, prefix = ''): Promise<string[]> {
     const relativePath = prefix ? `${prefix}/${entry.name}` : entry.name
     if (entry.isDirectory()) {
       if (relativePath === 'assets') fail('dist/chromium/assets was emitted')
-      fail(`unexpected directory emitted: ${relativePath}`)
+      if (relativePath !== 'icon')
+        fail(`unexpected directory emitted: ${relativePath}`)
+      files.push(
+        ...(await listResourceFiles(path.join(dir, entry.name), relativePath)),
+      )
+      continue
     }
     files.push(relativePath)
   }
@@ -70,6 +83,9 @@ function verifyIndexReferences(indexHtml: string) {
 
   if (!hasCss) fail('index.html does not reference ./app.css')
   if (!hasJs) fail('index.html does not reference ./app.js')
+  if (!indexHtml.includes('href="./icon/32.png"')) {
+    fail('index.html does not reference ./icon/32.png')
+  }
 }
 
 function verifyResourceContents(file: string, contents: string) {
@@ -86,7 +102,7 @@ function verifyResourceContents(file: string, contents: string) {
   }
 }
 
-/** Enforces the three-file Chromium WebUI resource contract. */
+/** Enforces the Chromium WebUI resource contract, including favicon assets. */
 async function main() {
   const files = await listResourceFiles(buildDir)
   verifyFileList(files)
@@ -94,7 +110,7 @@ async function main() {
   const indexHtml = await readResource('index.html')
   verifyIndexReferences(indexHtml)
 
-  for (const file of files) {
+  for (const file of textResourceFiles) {
     verifyResourceContents(file, await readResource(file))
   }
 }

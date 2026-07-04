@@ -33,6 +33,11 @@ const testSuites = {
       argv: [bun, 'run', 'test'],
     },
     {
+      label: 'shared package tests',
+      cwd: resolve(projectRoot, 'packages/shared'),
+      argv: [bun, 'run', 'test'],
+    },
+    {
       label: 'agent tests',
       cwd: resolve(projectRoot, 'apps/app'),
       argv: [bun, 'run', 'test'],

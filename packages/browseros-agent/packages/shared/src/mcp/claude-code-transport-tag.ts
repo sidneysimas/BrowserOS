@@ -6,7 +6,6 @@
 
 import { promises as fs } from 'node:fs'
 import { basename, dirname, join } from 'node:path'
-import { resolveAgentMcpConfigPath } from 'agent-mcp-manager'
 import {
   applyEdits,
   findNodeAtLocation,
@@ -15,8 +14,7 @@ import {
   type ParseError,
   parseTree,
 } from 'jsonc-parser'
-import { logger } from '../logger'
-import { BROWSEROS_MCP_SERVER_NAME } from './manager'
+import type { LoggerInterface } from '../types/logger'
 
 const FORMATTING = {
   formattingOptions: {
@@ -26,21 +24,22 @@ const FORMATTING = {
 }
 
 export interface EnsureClaudeCodeHttpTransportTagOptions {
-  configPath?: string
-  serverName?: string
+  configPath: string
+  serverName: string
+  expectedUrl?: string
+  logger?: LoggerInterface
 }
 
-export async function ensureClaudeCodeHttpTransportTag(
-  options: EnsureClaudeCodeHttpTransportTagOptions = {},
-): Promise<boolean> {
-  const serverName = options.serverName ?? BROWSEROS_MCP_SERVER_NAME
+export async function ensureClaudeCodeHttpTransportTag({
+  configPath,
+  serverName,
+  expectedUrl,
+  logger,
+}: EnsureClaudeCodeHttpTransportTagOptions): Promise<boolean> {
   try {
-    const configPath =
-      options.configPath ??
-      (await resolveAgentMcpConfigPath('claude-code', 'system'))
     const source = await readConfig(configPath)
     if (source === null) {
-      logger.debug('Claude Code MCP config missing; skipping transport tag', {
+      logger?.debug('Claude Code MCP config missing; skipping transport tag', {
         configPath,
         serverName,
       })
@@ -50,7 +49,7 @@ export async function ensureClaudeCodeHttpTransportTag(
     const parseErrors: ParseError[] = []
     const tree = parseTree(source, parseErrors, { allowTrailingComma: true })
     if (!tree || parseErrors.length > 0) {
-      logger.warn('Claude Code MCP config is not valid JSON; skipped tag', {
+      logger?.warn('Claude Code MCP config is not valid JSON; skipped tag', {
         configPath,
         serverName,
       })
@@ -59,11 +58,29 @@ export async function ensureClaudeCodeHttpTransportTag(
 
     const entryNode = findNodeAtLocation(tree, ['mcpServers', serverName])
     if (entryNode?.type !== 'object') {
-      logger.debug('Claude Code BrowserOS MCP entry missing; skipping tag', {
+      logger?.debug('Claude Code MCP entry missing; skipping tag', {
         configPath,
         serverName,
       })
       return false
+    }
+
+    if (expectedUrl !== undefined) {
+      const urlNode = findNodeAtLocation(tree, [
+        'mcpServers',
+        serverName,
+        'url',
+      ])
+      if (urlNode?.type !== 'string' || getNodeValue(urlNode) !== expectedUrl) {
+        logger?.debug(
+          'Claude Code MCP entry URL mismatch; skipping transport tag',
+          {
+            configPath,
+            serverName,
+          },
+        )
+        return false
+      }
     }
 
     const typeNode = findNodeAtLocation(tree, [
@@ -84,7 +101,7 @@ export async function ensureClaudeCodeHttpTransportTag(
     await atomicWrite(configPath, applyEdits(source, edits))
     return true
   } catch (err) {
-    logger.warn('Failed to ensure Claude Code MCP transport tag', {
+    logger?.warn('Failed to ensure Claude Code MCP transport tag', {
       serverName,
       error: err instanceof Error ? err.message : String(err),
     })

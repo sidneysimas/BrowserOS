@@ -1,4 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import type { McpServerLink } from 'agent-mcp-manager'
 import { env } from '../../src/env'
 import {
@@ -20,6 +23,17 @@ function stubWithLinks(links: McpServerLink[]) {
   return stub
 }
 
+async function withTempConfig<T>(
+  run: (configPath: string) => Promise<T>,
+): Promise<T> {
+  const dir = await mkdtemp(join(tmpdir(), 'browseros-connect-'))
+  try {
+    return await run(join(dir, '.claude.json'))
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+}
+
 describe('connectBrowserosToHarness', () => {
   beforeEach(() => {
     env.proxyPort = null
@@ -32,7 +46,7 @@ describe('connectBrowserosToHarness', () => {
     resetMcpManagerForTesting()
   })
 
-  it('writes a "browseros" entry with the canonical URL and links it to the right agent id', async () => {
+  it('writes a BrowserClaw entry with the canonical URL and links it to the right agent id', async () => {
     const stub = createStubMcpManager()
     setMcpManagerForTesting(stub)
     const result = await connectBrowserosToHarness('Claude Code')
@@ -60,6 +74,49 @@ describe('connectBrowserosToHarness', () => {
     expect((link?.payload as { allowOverwrite?: boolean }).allowOverwrite).toBe(
       true,
     )
+  })
+
+  it('leaves the Claude Code config entry tagged when Connect writes a config file', async () => {
+    await withTempConfig(async (configPath) => {
+      const stub = createStubMcpManager()
+      stub.link = async (opts) => {
+        stub.calls.push({ method: 'link', payload: opts })
+        await writeFile(
+          configPath,
+          JSON.stringify(
+            {
+              mcpServers: {
+                [opts.serverName]: {
+                  url: 'http://127.0.0.1:9200/mcp',
+                },
+              },
+            },
+            null,
+            2,
+          ),
+          'utf8',
+        )
+        return {
+          serverName: opts.serverName,
+          agent: opts.agent,
+          configPath,
+          created: true,
+        }
+      }
+      setMcpManagerForTesting(stub)
+
+      const result = await connectBrowserosToHarness('Claude Code')
+
+      expect(result.installed).toBe(true)
+      expect(JSON.parse(await readFile(configPath, 'utf8')).mcpServers).toEqual(
+        {
+          BrowserClaw: {
+            url: 'http://127.0.0.1:9200/mcp',
+            type: 'http',
+          },
+        },
+      )
+    })
   })
 
   it('writes a direct HTTP spec for Codex (http-capable since agent-mcp-manager 0.0.3)', async () => {

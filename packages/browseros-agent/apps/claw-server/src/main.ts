@@ -28,6 +28,7 @@ import { logger } from './lib/logger'
 import { migrateMcpUrls } from './lib/migrate-mcp-urls'
 import { setLocalServerUrl } from './local-server-url'
 import { createServer } from './server'
+import { healClaudeCodeTransportTags } from './services/claude-code-heal'
 import { startScreencastPoller } from './services/screencast-poller'
 import { publicMcpUrl } from './shared/mcp-url'
 
@@ -101,13 +102,21 @@ async function start(): Promise<void> {
   // proxy port, not the backend server bind URL.
   const mcpUrlForMigration = publicMcpUrl()
   void migrateMcpUrls(mcpUrlForMigration)
-    .then((result) =>
+    .then(async (result) => {
       logger.info('mcpUrl migration finished', {
         migrated: result.migrated,
         skipped: result.skipped,
         failed: result.failed,
-      }),
-    )
+      })
+      try {
+        const healed = await healClaudeCodeTransportTags()
+        logger.info('claude-code transport tag heal finished', { healed })
+      } catch (err: unknown) {
+        logger.error('claude-code transport tag heal failed unexpectedly', {
+          error: err instanceof Error ? err.message : String(err),
+        })
+      }
+    })
     .catch((err: unknown) =>
       logger.error('mcpUrl migration failed unexpectedly', {
         error: err instanceof Error ? err.message : String(err),

@@ -7,6 +7,7 @@
  * consume these instead of touching the upstream library directly.
  */
 
+import { ensureClaudeCodeHttpTransportTag } from '@browseros/shared/mcp/claude-code-transport-tag'
 import {
   type AgentId,
   type AgentInfo,
@@ -26,7 +27,6 @@ import {
   BROWSEROS_MCP_STDIO_SERVER_NAME,
   getMcpManager,
 } from './manager'
-import { ensureClaudeCodeHttpTransportTag } from './transport-tag'
 import type {
   InstallAgentResult,
   McpAgentRow,
@@ -165,6 +165,7 @@ export async function installInto(
     await ensureClaudeCodeHttpTransportTag({
       configPath: link.configPath,
       serverName,
+      logger,
     })
   }
   logger.info('Installed BrowserOS MCP into agent', {

@@ -3,9 +3,11 @@
   "version": "0.0.1",
   "type": "module",
   "scripts": {
+    "test": "bun test",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "jsonc-parser": "^3.3.1",
     "zod": "^3.25.76"
   },
   "exports": {
@@ -56,6 +58,10 @@
     "./schemas/browser-context": {
       "types": "./src/schemas/browser-context.ts",
       "default": "./src/schemas/browser-context.ts"
+    },
+    "./mcp/claude-code-transport-tag": {
+      "types": "./src/mcp/claude-code-transport-tag.ts",
+      "default": "./src/mcp/claude-code-transport-tag.ts"
     },
     "./schemas/sidecar-config": {
       "types": "./src/schemas/sidecar-config.ts",

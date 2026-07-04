@@ -20,6 +20,7 @@
  * warn-logged so a single broken agent cannot block the others.
  */
 
+import { ensureClaudeCodeHttpTransportTag } from '@browseros/shared/mcp/claude-code-transport-tag'
 import type {
   InstalledServer,
   McpHttpSpec,
@@ -32,7 +33,6 @@ import {
   BROWSEROS_MCP_STDIO_SERVER_NAME,
   getMcpManager,
 } from './manager'
-import { ensureClaudeCodeHttpTransportTag } from './transport-tag'
 import type { McpAgentId, ReconcileResult } from './types'
 
 export interface ReconcileUrlInput {
@@ -158,7 +158,7 @@ async function ensureClaudeCodeHttpTransportTagForLink(
   configPath: string | undefined,
 ): Promise<void> {
   if (serverName !== BROWSEROS_MCP_SERVER_NAME || !configPath) return
-  await ensureClaudeCodeHttpTransportTag({ configPath, serverName })
+  await ensureClaudeCodeHttpTransportTag({ configPath, serverName, logger })
 }
 
 export async function reconcileUrl(

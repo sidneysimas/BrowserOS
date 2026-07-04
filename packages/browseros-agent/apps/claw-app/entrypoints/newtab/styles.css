@@ -41,14 +41,13 @@
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
   --color-sidebar-border: var(--sidebar-border);
 
-  /* BrowserOS bespoke surfaces. ink-deep and its ink-deep-2 gradient
-     partner stay dark chips in both themes, elevated in dark so they read
-     as raised, not lost against the page. They carry hardcoded white text. */
+  /* BrowserOS bespoke surfaces. ink-deep stays a dark chip in both themes,
+     elevated in dark so it reads as raised, not lost against the page. It
+     carries hardcoded white text. */
   --color-bg-canvas: var(--bg-canvas);
   --color-bg-sunken: var(--bg-sunken);
   --color-card-tint: var(--card-tint);
   --color-ink-deep: var(--ink-deep);
-  --color-ink-deep-2: var(--ink-deep-2);
   --color-border-2: var(--border-2);
   --color-border-strong: var(--border-strong);
 
@@ -258,7 +257,6 @@ body {
   --bg-sunken: #eef3fb;
   --card-tint: #fbfcff;
   --ink-deep: #01123f;
-  --ink-deep-2: #0a2158;
   --border-2: #e3e9f4;
   --border-strong: #c7d3e8;
   --ink: #25242f;
@@ -321,7 +319,6 @@ body {
   --bg-sunken: #070b11;
   --card-tint: #151d2e;
   --ink-deep: #172138;
-  --ink-deep-2: #1f2c4a;
   --border-2: #253046;
   --border-strong: #34405c;
   --ink: #eef2f9;

@@ -74,11 +74,11 @@ describe('OnboardingV2 shell', () => {
     expect(html).not.toContain('#FF5F57')
   })
 
-  it('renders four step dots', () => {
+  it('renders three step dots', () => {
     const html = renderApp()
     const matches = html.match(/data-step-dot="true"/g) ?? []
     expect(html).toContain('aria-label="Onboarding progress"')
-    expect(matches.length).toBe(4)
+    expect(matches.length).toBe(3)
   })
 
   it('opens BrowserOS new tab when onboarding completes', () => {

@@ -8,7 +8,7 @@
  * separately.
  */
 
-export type Step = 0 | 1 | 2 | 3
+export type Step = 0 | 1 | 2
 
 export type ImportPhase =
   | 'pre-quit'
@@ -16,5 +16,3 @@ export type ImportPhase =
   | 'importing'
   | 'failed'
   | 'imported'
-
-export type ConnectPhase = 'idle' | 'connecting' | 'connected'

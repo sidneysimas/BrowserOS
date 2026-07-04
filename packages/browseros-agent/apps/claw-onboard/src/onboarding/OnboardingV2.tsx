@@ -23,14 +23,12 @@ import {
   onboardingFormDefaults,
   onboardingFormResolver,
 } from './onboarding-v2.schemas'
-import type { ConnectPhase, ImportPhase, Step } from './onboarding-v2.types'
-import { ConnectStep } from './steps/ConnectStep'
+import type { ImportPhase, Step } from './onboarding-v2.types'
 import { ImportStep } from './steps/ImportStep'
 import { ReadyStep } from './steps/ReadyStep'
 import { WelcomeStep } from './steps/WelcomeStep'
 
-const TOTAL_STEPS = 4
-const FAKE_CONNECT_DELAY_MS = 1700
+const TOTAL_STEPS = 3
 const BROWSEROS_NEW_TAB_URL = 'chrome://newtab'
 
 const initialOnboardingState: BrowserOSOnboardingState = {
@@ -39,7 +37,7 @@ const initialOnboardingState: BrowserOSOnboardingState = {
   sources: [],
 }
 
-/** Maps Chromium importer status into the local four-step onboarding screen state. */
+/** Maps Chromium importer status into the local three-step onboarding screen state. */
 export function importPhaseFor(
   status: BrowserOSImportStatus,
   hasPreparedForImport: boolean,
@@ -56,7 +54,7 @@ export function openBrowserOsNewTab() {
   window.location.assign(BROWSEROS_NEW_TAB_URL)
 }
 
-/** Runs the standalone four-step BrowserClaw onboarding flow. */
+/** Runs the standalone three-step BrowserClaw onboarding flow. */
 export function OnboardingV2() {
   const form = useForm<OnboardingFormValues>({
     resolver: onboardingFormResolver,
@@ -69,7 +67,6 @@ export function OnboardingV2() {
   const [onboardingState, setOnboardingState] =
     useState<BrowserOSOnboardingState>(initialOnboardingState)
   const [hasPreparedForImport, setHasPreparedForImport] = useState(false)
-  const [connectPhase, setConnectPhase] = useState<ConnectPhase>('idle')
   const didNotifyPageReady = useRef(false)
   const importPhase = importPhaseFor(
     onboardingState.status,
@@ -100,15 +97,6 @@ export function OnboardingV2() {
     }
   }, [form, onboardingState.sources])
 
-  useEffect(() => {
-    if (connectPhase !== 'connecting') return
-    const timer = window.setTimeout(
-      () => setConnectPhase('connected'),
-      FAKE_CONNECT_DELAY_MS,
-    )
-    return () => window.clearTimeout(timer)
-  }, [connectPhase])
-
   function prepareForImport() {
     setHasPreparedForImport(true)
     bridge.refreshSources()
@@ -134,7 +122,7 @@ export function OnboardingV2() {
     <Form {...form}>
       <OnboardingShell step={step} totalSteps={TOTAL_STEPS}>
         {step === 0 && (
-          <WelcomeStep onPrimary={() => setStep(1)} onSkip={() => setStep(3)} />
+          <WelcomeStep onPrimary={() => setStep(1)} onSkip={() => setStep(2)} />
         )}
         {step === 1 && (
           <ImportStep
@@ -147,14 +135,7 @@ export function OnboardingV2() {
             onContinue={() => setStep(2)}
           />
         )}
-        {step === 2 && (
-          <ConnectStep
-            phase={connectPhase}
-            onAddToClaude={() => setConnectPhase('connecting')}
-            onContinue={() => setStep(3)}
-          />
-        )}
-        {step === 3 && <ReadyStep onDone={finishOnboarding} />}
+        {step === 2 && <ReadyStep onDone={finishOnboarding} />}
       </OnboardingShell>
     </Form>
   )

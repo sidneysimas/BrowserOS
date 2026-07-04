@@ -17,7 +17,7 @@ export function WelcomeStep({ onPrimary, onSkip }: WelcomeStepProps) {
       </DisplayHeading>
       <StepCopy>
         Logged in as you, fast, and under your control. Set-up takes about two
-        minutes. Import your logins, connect to Claude, and run your first task.
+        minutes. Import your logins and run your first task.
       </StepCopy>
       <div className="flex flex-wrap items-center gap-3">
         <Button type="button" size="lg" onClick={onPrimary}>

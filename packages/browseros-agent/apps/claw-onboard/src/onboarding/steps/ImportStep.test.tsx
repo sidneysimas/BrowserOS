@@ -137,7 +137,7 @@ describe('ImportStep', () => {
     expect(html).not.toContain('Choose a browser profile to import')
   })
 
-  it('renders the success card and Connect-to-Claude CTA in imported phase', () => {
+  it('renders the success card and continue CTA in imported phase', () => {
     const html = render(
       'imported',
       readyState({
@@ -150,7 +150,7 @@ describe('ImportStep', () => {
     )
     expect(html).toContain('Imported 7 items from Work')
     expect(html).toContain('History, Bookmarks')
-    expect(html).toContain('Connect to Claude')
+    expect(html).toContain('Continue')
   })
 
   it('does not fabricate a success summary when progress is missing', () => {

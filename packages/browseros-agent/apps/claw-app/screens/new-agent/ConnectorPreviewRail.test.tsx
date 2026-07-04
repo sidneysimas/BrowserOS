@@ -31,7 +31,7 @@ describe('ConnectorPreviewRail', () => {
     const html = render()
 
     expect(html).toContain('MCP endpoint')
-    expect(html).not.toContain('http://127.0.0.1:9200/mcp/demo-connector')
+    expect(html).not.toContain('http://127.0.0.1:9200/mcp')
     expect(html).not.toContain('Copy MCP URL')
   })
 
@@ -41,7 +41,7 @@ describe('ConnectorPreviewRail', () => {
       name: 'Demo connector',
       harness: 'Claude Code',
       slug: 'demo-connector',
-      mcpUrl: 'http://127.0.0.1:9512/mcp/demo-connector',
+      mcpUrl: 'http://127.0.0.1:9512/mcp',
       cliCommand: 'mcp add demo-connector',
       harnessInstall: {
         installed: true,
@@ -49,7 +49,7 @@ describe('ConnectorPreviewRail', () => {
       },
     })
 
-    expect(html).toContain('http://127.0.0.1:9512/mcp/demo-connector')
+    expect(html).toContain('http://127.0.0.1:9512/mcp')
     expect(html).toContain('Copy MCP URL')
   })
 })

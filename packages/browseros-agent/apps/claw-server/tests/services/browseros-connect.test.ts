@@ -12,6 +12,8 @@ import {
 } from '../../src/services/browseros-connect'
 import { createStubMcpManager } from '../_helpers/stub-mcp-manager'
 
+const ORIGINAL_SERVER_PORT = env.serverPort
+
 function stubWithLinks(links: McpServerLink[]) {
   const stub = createStubMcpManager()
   stub.listLinks = async () => links
@@ -21,10 +23,12 @@ function stubWithLinks(links: McpServerLink[]) {
 describe('connectBrowserosToHarness', () => {
   beforeEach(() => {
     env.proxyPort = null
+    env.serverPort = ORIGINAL_SERVER_PORT
     resetMcpManagerForTesting()
   })
   afterEach(() => {
     env.proxyPort = null
+    env.serverPort = ORIGINAL_SERVER_PORT
     resetMcpManagerForTesting()
   })
 
@@ -42,7 +46,7 @@ describe('connectBrowserosToHarness', () => {
     }
     expect(addPayload.name).toBe('BrowserClaw')
     expect(addPayload.spec.transport).toBe('http')
-    expect(addPayload.spec.url).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/mcp$/)
+    expect(addPayload.spec.url).toBe('http://127.0.0.1:9200/mcp')
     expect(addPayload.spec.url).not.toContain('/cockpit')
     const link = stub.calls.find((c) => c.method === 'link')
     expect(link).toBeDefined()
@@ -67,8 +71,20 @@ describe('connectBrowserosToHarness', () => {
       spec: { transport: string; url?: string }
     }
     expect(payload.spec.transport).toBe('http')
-    expect(payload.spec.url).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/mcp$/)
+    expect(payload.spec.url).toBe('http://127.0.0.1:9200/mcp')
     expect(payload.spec.url).not.toContain('/cockpit')
+  })
+
+  it('falls back to the server bind port when no proxy port is configured', async () => {
+    env.serverPort = 9321
+    const stub = createStubMcpManager()
+    setMcpManagerForTesting(stub)
+    await connectBrowserosToHarness('Codex')
+    const add = stub.calls.find((c) => c.method === 'add')
+    const payload = add?.payload as {
+      spec: { transport: string; url?: string }
+    }
+    expect(payload.spec.url).toBe('http://127.0.0.1:9321/mcp')
   })
 
   it('uses the trusted proxy port when server and proxy ports differ', async () => {

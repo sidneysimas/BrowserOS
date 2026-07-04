@@ -39,7 +39,7 @@ describe('loadClawConfig', () => {
     expect(result).toEqual({
       ok: true,
       value: {
-        port: CLAW_API_PORT_DEFAULT,
+        serverPort: CLAW_API_PORT_DEFAULT,
         proxyPort: CLAW_API_PORT_DEFAULT,
         cdpPort: CLAW_CDP_PORT_DEFAULT,
         resourcesDir: join(dirname(samplePath), 'resources'),
@@ -100,7 +100,7 @@ describe('loadClawConfig', () => {
     expect(result).toEqual({
       ok: true,
       value: {
-        port: 9420,
+        serverPort: 9420,
         proxyPort: 9120,
         cdpPort: 9020,
         resourcesDir: join(dirname(configPath), '../resources'),
@@ -125,7 +125,7 @@ describe('loadClawConfig', () => {
     expect(result).toEqual({
       ok: true,
       value: {
-        port: 9420,
+        serverPort: 9420,
         proxyPort: undefined,
         cdpPort: 9020,
         resourcesDir: '/resources',
@@ -150,7 +150,7 @@ describe('loadClawConfig', () => {
     expect(result).toEqual({
       ok: true,
       value: {
-        port: 9420,
+        serverPort: 9420,
         proxyPort: undefined,
         cdpPort: 9020,
         resourcesDir: '/service/workdir/resources',
@@ -191,7 +191,7 @@ describe('loadClawConfig', () => {
     expect(result).toEqual({
       ok: true,
       value: {
-        port: 9420,
+        serverPort: 9420,
         proxyPort: 9120,
         cdpPort: 9020,
         resourcesDir: join(dirname(configPath), 'resources'),
@@ -230,7 +230,7 @@ describe('loadClawConfig', () => {
     expect(envResult).toEqual({
       ok: true,
       value: {
-        port: 9420,
+        serverPort: 9420,
         proxyPort: undefined,
         cdpPort: 9020,
         resourcesDir: '/resources',

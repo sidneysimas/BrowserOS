@@ -78,13 +78,13 @@ export function ConnectorPreviewRail({
     }
     let active = true
     setResolvedMcpUrl(null)
-    resolveMcpUrl(slug).then((url) => {
+    resolveMcpUrl().then((url) => {
       if (active) setResolvedMcpUrl(url)
     })
     return () => {
       active = false
     }
-  }, [createdAgent, slug])
+  }, [createdAgent])
 
   const copyMcpUrl = async () => {
     if (mcpUrl === null) return

@@ -5,13 +5,14 @@
  *
  * One-shot startup migration for stored cockpit MCP URLs.
  *
- * The migration walks the profile directory, rewrites `mcpUrl` to
- * the runtime's current `buildMcpUrl(slug)` shape, and re-installs
- * the harness entry so it picks up the new value.
+ * The migration walks the profile directory, re-installs the harness
+ * entry with the runtime's current canonical MCP URL, and rewrites
+ * profile JSON only after that entry is in place.
  *
  * Failures are logged per-profile; one bad file does not abort the
  * sweep. The migration is idempotent: a second run is a no-op once
- * every URL has been refreshed.
+ * every URL has been refreshed; failed harness installs leave the
+ * old URL stored so the next boot retries.
  */
 
 import {
@@ -25,7 +26,7 @@ import { listFiles, readJson, writeJson } from './storage'
 const AGENTS_SUBDIR = 'agents'
 
 export async function migrateMcpUrls(
-  buildMcpUrl: (slug: string) => string,
+  targetMcpUrl: string,
 ): Promise<{ migrated: number; skipped: number; failed: number }> {
   let migrated = 0
   let skipped = 0
@@ -35,22 +36,12 @@ export async function migrateMcpUrls(
     const file = `${AGENTS_SUBDIR}/${name}`
     try {
       const profile = await readJson(file, storedAgentProfileSchema)
-      const next = buildMcpUrl(profile.slug)
+      const next = targetMcpUrl
       if (profile.mcpUrl === next) {
         skipped++
         continue
       }
-      const updated: StoredAgentProfile = { ...profile, mcpUrl: next }
-      await writeJson(file, updated, storedAgentProfileSchema)
-      // Drop the stale harness entry first, then install the new
-      // URL. The uninstall is wrapped in its own try/catch so a
-      // throw here (e.g. the user removed the entry by hand and a
-      // future agent-mcp-manager build escalates that to an
-      // exception) does NOT abort the install. Without this
-      // isolation, the profile JSON would carry the new URL while
-      // the harness config still points at the dead old one, and
-      // the next migration pass would skip the row as "already
-      // migrated".
+      // Missing or already-removed stale entries must not block installing the replacement entry.
       try {
         await uninstallForAgent({
           slug: profile.slug,
@@ -66,11 +57,22 @@ export async function migrateMcpUrls(
               : String(uninstallErr),
         })
       }
-      await installForAgent({
+      const updated: StoredAgentProfile = { ...profile, mcpUrl: next }
+      const outcome = await installForAgent({
         slug: updated.slug,
         mcpUrl: updated.mcpUrl,
         harness: updated.harness,
       })
+      if (!outcome.installed) {
+        failed++
+        logger.warn('failed to reinstall harness during mcpUrl migration', {
+          file,
+          slug: profile.slug,
+          message: outcome.message,
+        })
+        continue
+      }
+      await writeJson(file, updated, storedAgentProfileSchema)
       migrated++
       logger.info('migrated cockpit mcpUrl', {
         slug: profile.slug,

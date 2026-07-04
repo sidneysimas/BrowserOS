@@ -51,9 +51,7 @@ describe('migrateMcpUrls', () => {
         storedAgentProfileSchema,
       )
 
-      const standaloneBuilder = (slug: string) =>
-        `http://127.0.0.1:9200/mcp/${slug}`
-      const result = await migrateMcpUrls(standaloneBuilder)
+      const result = await migrateMcpUrls('http://127.0.0.1:9200/mcp')
       expect(result.migrated).toBe(1)
       expect(result.skipped).toBe(0)
       expect(result.failed).toBe(0)
@@ -62,15 +60,14 @@ describe('migrateMcpUrls', () => {
         `agents/${created.id}.json`,
         storedAgentProfileSchema,
       )
-      expect(stored.mcpUrl).toBe('http://127.0.0.1:9200/mcp/cowork')
+      expect(stored.mcpUrl).toBe('http://127.0.0.1:9200/mcp')
     })
   })
 
   test('still handles arbitrary runtime URL changes', async () => {
     await withTempBrowserosDir(async () => {
       const created = await agents.create(makeInput({ name: 'Other Port' }))
-      const newBuilder = (slug: string) => `http://127.0.0.1:9100/mcp/${slug}`
-      const result = await migrateMcpUrls(newBuilder)
+      const result = await migrateMcpUrls('http://127.0.0.1:9100/mcp')
       expect(result.migrated).toBe(1)
       expect(result.skipped).toBe(0)
       expect(result.failed).toBe(0)
@@ -79,16 +76,14 @@ describe('migrateMcpUrls', () => {
         `agents/${created.id}.json`,
         storedAgentProfileSchema,
       )
-      expect(stored.mcpUrl).toBe('http://127.0.0.1:9100/mcp/other-port')
+      expect(stored.mcpUrl).toBe('http://127.0.0.1:9100/mcp')
     })
   })
 
   test('skips a profile whose stored URL already matches the new shape', async () => {
     await withTempBrowserosDir(async () => {
       const created = await agents.create(makeInput({ name: 'Stable' }))
-      const sameBuilder = (slug: string) =>
-        created.mcpUrl.replace(/\/[^/]*$/, `/${slug}`)
-      const result = await migrateMcpUrls(sameBuilder)
+      const result = await migrateMcpUrls(created.mcpUrl)
       expect(result.migrated).toBe(0)
       expect(result.skipped).toBe(1)
       expect(result.failed).toBe(0)
@@ -101,8 +96,7 @@ describe('migrateMcpUrls', () => {
       setMcpManagerForTesting(stub)
       const created = await agents.create(makeInput({ name: 'Reinstall' }))
       stub.reset()
-      const newBuilder = (slug: string) => `http://127.0.0.1:9100/mcp/${slug}`
-      await migrateMcpUrls(newBuilder)
+      await migrateMcpUrls('http://127.0.0.1:9100/mcp')
       const methods = stub.calls.map((c) => c.method)
       // Migration: uninstall (old entry) then install (new URL).
       expect(methods).toContain('unlink')
@@ -118,23 +112,64 @@ describe('migrateMcpUrls', () => {
         spec: {
           transport: 'stdio',
           command: 'npx',
-          args: ['mcp-remote', `http://127.0.0.1:9100/mcp/${created.slug}`],
+          args: ['mcp-remote', 'http://127.0.0.1:9100/mcp'],
         },
       })
+    })
+  })
+
+  test('does not advance the stored mcpUrl when harness reinstall fails', async () => {
+    await withTempBrowserosDir(async () => {
+      const created = await agents.create(makeInput({ name: 'Retry Install' }))
+      const oldUrl = 'http://127.0.0.1:9100/mcp'
+      const nextUrl = 'http://127.0.0.1:9200/mcp'
+      const storedBefore = await readJson(
+        `agents/${created.id}.json`,
+        storedAgentProfileSchema,
+      )
+      await writeJson(
+        `agents/${created.id}.json`,
+        { ...storedBefore, mcpUrl: oldUrl },
+        storedAgentProfileSchema,
+      )
+
+      const stub = createStubMcpManager()
+      let addAttempts = 0
+      stub.add = async () => {
+        addAttempts++
+        throw new Error('manager add failed')
+      }
+      setMcpManagerForTesting(stub)
+
+      const first = await migrateMcpUrls(nextUrl)
+      expect(first).toEqual({ migrated: 0, skipped: 0, failed: 1 })
+      const storedAfterFirst = await readJson(
+        `agents/${created.id}.json`,
+        storedAgentProfileSchema,
+      )
+      expect(storedAfterFirst.mcpUrl).toBe(oldUrl)
+      expect(addAttempts).toBe(1)
+
+      const second = await migrateMcpUrls(nextUrl)
+      expect(second).toEqual({ migrated: 0, skipped: 0, failed: 1 })
+      const storedAfterSecond = await readJson(
+        `agents/${created.id}.json`,
+        storedAgentProfileSchema,
+      )
+      expect(storedAfterSecond.mcpUrl).toBe(oldUrl)
+      expect(addAttempts).toBe(2)
     })
   })
 
   test('a corrupt profile file is logged + skipped without aborting the sweep', async () => {
     await withTempBrowserosDir(async (dir) => {
       const ok = await agents.create(makeInput({ name: 'Healthy' }))
-      // Drop a garbage file next to the valid one.
       await writeFile(
         join(dir, 'claw-server/agents', 'broken.json'),
         '{ this is not valid json',
         'utf8',
       )
-      const newBuilder = (slug: string) => `http://127.0.0.1:9100/mcp/${slug}`
-      const result = await migrateMcpUrls(newBuilder)
+      const result = await migrateMcpUrls('http://127.0.0.1:9100/mcp')
       expect(result.migrated).toBe(1)
       expect(result.failed).toBe(1)
       // The healthy profile got its URL rewritten.
@@ -142,15 +177,13 @@ describe('migrateMcpUrls', () => {
         `agents/${ok.id}.json`,
         storedAgentProfileSchema,
       )
-      expect(stored.mcpUrl).toContain('/mcp/')
+      expect(stored.mcpUrl).toBe('http://127.0.0.1:9100/mcp')
     })
   })
 
   test('an empty agents directory returns zero counts and does not throw', async () => {
     await withTempBrowserosDir(async () => {
-      const result = await migrateMcpUrls(
-        (slug) => `http://127.0.0.1:9100/mcp/${slug}`,
-      )
+      const result = await migrateMcpUrls('http://127.0.0.1:9100/mcp')
       expect(result).toEqual({ migrated: 0, skipped: 0, failed: 0 })
     })
   })

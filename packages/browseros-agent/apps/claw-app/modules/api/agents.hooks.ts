@@ -152,27 +152,6 @@ export const useDeleteAgent = createMutation<
   },
 })
 
-interface RegenerateMcpVariables {
-  id: string
-}
-
-interface RegenerateMcpResult {
-  id: string
-  mcpUrl: string
-}
-
-export const useRegenerateMcpUrl = createMutation<
-  RegenerateMcpResult,
-  RegenerateMcpVariables
->({
-  mutationFn: async ({ id }) => {
-    const response = await api.agents[':id']['mcp-url:regenerate'].$post({
-      param: { id },
-    })
-    return parseResponse<RegenerateMcpResult>(response)
-  },
-})
-
 interface UseAgentProfileDetailVariables {
   id: string
 }

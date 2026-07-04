@@ -11,6 +11,7 @@
  * single-file edit.
  */
 
+import { env } from '../env'
 import { CLAW_API_PORT_DEFAULT } from './port'
 
 /** Path the v2 single MCP route is mounted at. */
@@ -38,4 +39,9 @@ export const BROWSEROS_MCP_SERVER_NAME = 'BrowserClaw'
  */
 export function canonicalMcpUrlForPort(port = CLAW_API_PORT_DEFAULT): string {
   return `http://127.0.0.1:${port}${MCP_PATH}`
+}
+
+/** Public MCP URL for clients: proxy port is Chromium-owned; server port is standalone/dev fallback, never a bind decision. */
+export function publicMcpUrl(): string {
+  return canonicalMcpUrlForPort(env.proxyPort ?? env.serverPort)
 }

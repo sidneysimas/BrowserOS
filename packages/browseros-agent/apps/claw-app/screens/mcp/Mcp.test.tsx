@@ -166,13 +166,6 @@ describe('Mcp (editorial)', () => {
     expect(html).not.toContain('built-in')
   })
 
-  it('does NOT render the legacy McpRow / RegenerateUrlDialog / "Add agent" CTA', () => {
-    const html = renderApp()
-    expect(html).not.toContain('Add agent')
-    expect(html).not.toContain('Regenerate URL')
-    expect(html).not.toContain('No endpoints yet')
-  })
-
   it('does NOT render the removed marketing subtitle from the old HeroCard', () => {
     const html = renderApp()
     expect(html).not.toContain(

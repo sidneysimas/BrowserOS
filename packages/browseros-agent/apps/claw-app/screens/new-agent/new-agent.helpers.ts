@@ -50,8 +50,7 @@ export function toSlug(input: string): string {
 
 export {
   buildMcpCliCommand as buildCliCommand,
-  buildMcpEndpointUrl as buildMcpUrl,
-  resolveMcpEndpointUrl as resolveMcpUrl,
+  resolveCanonicalMcpEndpointUrl as resolveMcpUrl,
 } from '@/modules/api/mcp-endpoint'
 
 export function describeLogins(

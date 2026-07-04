@@ -29,6 +29,7 @@ import { migrateMcpUrls } from './lib/migrate-mcp-urls'
 import { setLocalServerUrl } from './local-server-url'
 import server from './server'
 import { startScreencastPoller } from './services/screencast-poller'
+import { publicMcpUrl } from './shared/mcp-url'
 
 async function start(): Promise<void> {
   const config = loadClawConfig()
@@ -41,7 +42,7 @@ async function start(): Promise<void> {
 
   const httpServer = Bun.serve({
     hostname: '127.0.0.1',
-    port: env.port,
+    port: env.serverPort,
     fetch: server.fetch,
   })
   // File sink attaches only after the port bind succeeds: the bind is
@@ -95,12 +96,8 @@ async function start(): Promise<void> {
   // Sweep stored profiles so their harness install and mcpUrl match
   // the public MCP URL. In BrowserOS-managed launches this is the
   // proxy port, not the backend server bind URL.
-  const publicMcpBaseUrl = env.proxyPort
-    ? `http://127.0.0.1:${env.proxyPort}`
-    : url
-  const buildMcpUrlForMigration = (slug: string): string =>
-    `${publicMcpBaseUrl}/mcp/${slug}`
-  void migrateMcpUrls(buildMcpUrlForMigration)
+  const mcpUrlForMigration = publicMcpUrl()
+  void migrateMcpUrls(mcpUrlForMigration)
     .then((result) =>
       logger.info('mcpUrl migration finished', {
         migrated: result.migrated,

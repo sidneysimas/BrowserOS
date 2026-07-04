@@ -10,26 +10,14 @@
  * harness, idempotent connect / disconnect, list reads through the
  * library's manifest so the UI reflects the current install state
  * within the polling interval.
- *
- * Distinct from `harness-install.ts` (the legacy per-agent path).
- * That path writes one entry per cockpit agent profile, keyed by the
- * profile's slug, with a slug-shaped URL. v2 has no per-agent
- * profile, so this layer writes one entry keyed by the constant
- * `BROWSEROS_MCP_SERVER_NAME` ("BrowserClaw") with the slugless URL.
- * Both layers share `specFor` for transport selection (HTTP vs the
- * stdio `npx mcp-remote` fallback for stdio-only agents).
  */
 
 import type { AgentId } from 'agent-mcp-manager'
 import { ForeignEntryError } from 'agent-mcp-manager'
-import { env } from '../env'
 import { logger } from '../lib/logger'
 import { getMcpManager } from '../lib/mcp-manager'
 import { type Harness, harnessEnum } from '../routes/agents/schemas'
-import {
-  BROWSEROS_MCP_SERVER_NAME,
-  canonicalMcpUrlForPort,
-} from '../shared/mcp-url'
+import { BROWSEROS_MCP_SERVER_NAME, publicMcpUrl } from '../shared/mcp-url'
 import { HARNESS_TO_AGENT_ID } from './harness-install'
 import { relinkManagedServer } from './mcp-relink'
 import { specFor } from './spec-for'
@@ -53,10 +41,6 @@ export interface ConnectionState {
 
 const ALL_HARNESSES: readonly Harness[] = harnessEnum.options
 
-function canonicalMcpUrl(): string {
-  return canonicalMcpUrlForPort(env.proxyPort ?? env.port)
-}
-
 export async function connectBrowserosToHarness(
   harness: Harness,
 ): Promise<ConnectionState> {
@@ -70,7 +54,7 @@ export async function connectBrowserosToHarness(
     }
   }
   const mgr = getMcpManager()
-  const url = canonicalMcpUrl()
+  const url = publicMcpUrl()
   try {
     const link = await relinkManagedServer({
       mgr,

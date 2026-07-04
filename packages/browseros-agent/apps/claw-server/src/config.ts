@@ -10,7 +10,7 @@ import { VERSION } from './version'
 const portSchema = z.number().int().min(1).max(65535)
 
 const ClawConfigSchema = z.object({
-  port: portSchema,
+  serverPort: portSchema,
   cdpPort: portSchema,
   proxyPort: portSchema.optional(),
   resourcesDir: z.string().min(1),
@@ -100,7 +100,7 @@ function projectClawConfig(
   }
 
   const result = ClawConfigSchema.safeParse({
-    port: sidecar.ports.server,
+    serverPort: sidecar.ports.server,
     cdpPort: sidecar.ports.cdp,
     proxyPort: sidecar.ports.proxy,
     resourcesDir:

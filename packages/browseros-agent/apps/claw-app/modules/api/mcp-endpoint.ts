@@ -4,11 +4,9 @@
  * SPDX-License-Identifier: AGPL-3.0-or-later
  *
  * Canonical source for the URL the UI advertises as the MCP endpoint
- * for an agent, the CLI snippet shown alongside it, and the slug
- * parser used to read URLs that the server-rendered profile responds
- * with. Every "copy URL" widget and every "add to host agent" config
- * the wizard / directory pages render flows through these helpers,
- * so the future cutover is confined to this file.
+ * and the CLI snippets shown alongside it. Every "copy URL" widget
+ * and every "add to host agent" config the wizard / directory pages
+ * render flows through these helpers.
  *
  * BrowserOS-managed builds read the MCP proxy pref; dev and
  * standalone builds keep the existing launcher/fallback resolution.
@@ -34,35 +32,9 @@ function mcpBaseUrlFallback(): string {
 }
 
 /**
- * URL the UI shows in the copy widget and embeds in host-agent config
- * snippets. Matches the URL `apps/claw-server` returns from its
- * `agents` service so server-created and client-composed profiles
- * produce identical strings.
- */
-export function buildMcpEndpointUrl(slug: string): string {
-  return `${mcpBaseUrlFallback()}/mcp/${slug}`
-}
-
-/** Builds a per-agent MCP endpoint after BrowserOS proxy-port resolution. */
-export async function resolveMcpEndpointUrl(slug: string): Promise<string> {
-  return `${await resolveMcpBaseUrl()}/mcp/${slug}`
-}
-
-/**
- * Pulls the slug segment out of an MCP URL. Tolerates both the
- * removed prefixed shape and the current direct shape. Returns an
- * empty string when neither matches so callers can fall back to a
- * known id.
- */
-export function slugFromMcpEndpointUrl(url: string): string {
-  const match = url.match(/\/mcp\/([^/?#]+)/)
-  return match?.[1] ?? ''
-}
-
-/**
  * CLI snippet shown next to the URL widgets and copied as the
- * "add to host agent" command. Lives here so the directory and the
- * wizard render identical text from a single source.
+ * "add to host agent" command. The slug is the host-visible server
+ * name, not part of the endpoint URL.
  */
 export function buildMcpCliCommand(slug: string): string {
   return `mcp add ${slug}`
@@ -70,9 +42,7 @@ export function buildMcpCliCommand(slug: string): string {
 
 /**
  * Canonical v2 URL the MCP page advertises: one slugless endpoint
- * for the whole cockpit. Uses the same base resolution as
- * `buildMcpEndpointUrl` so dev-launcher overrides and query-string
- * apiUrl forwarding stay consistent across both shapes.
+ * for the whole cockpit.
  */
 export function buildCanonicalMcpEndpointUrl(): string {
   return `${mcpBaseUrlFallback()}${MCP_PATH}`

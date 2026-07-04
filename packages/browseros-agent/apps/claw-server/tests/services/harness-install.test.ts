@@ -37,7 +37,7 @@ function makeInput(overrides: Partial<NewAgentValues> = {}): NewAgentValues {
 }
 
 describe('harness install service', () => {
-  test('installForAgent on Claude Desktop wraps the slug in npx mcp-remote (stdio-only parser)', async () => {
+  test('installForAgent on Claude Desktop wraps the URL in npx mcp-remote (stdio-only parser)', async () => {
     // Claude Desktop's `claude_desktop_config.json` parser validates
     // stdio-shaped entries only, so the install path must write the
     // `npx mcp-remote <url>` shape. specFor sources this from the
@@ -71,7 +71,7 @@ describe('harness install service', () => {
       setMcpManagerForTesting(stub)
       const outcome = await installForAgent({
         slug: 'cdx-test',
-        mcpUrl: 'http://127.0.0.1:9200/mcp/cdx-test',
+        mcpUrl: 'http://127.0.0.1:9200/mcp',
         harness: 'Codex',
       })
       const addCall = stub.calls.find((c) => c.method === 'add')
@@ -79,7 +79,7 @@ describe('harness install service', () => {
         name: 'cdx-test',
         spec: {
           transport: 'http',
-          url: 'http://127.0.0.1:9200/mcp/cdx-test',
+          url: 'http://127.0.0.1:9200/mcp',
         },
       })
       const linkCall = stub.calls.find((c) => c.method === 'link')
@@ -95,7 +95,7 @@ describe('harness install service', () => {
       for (const harness of ['Hermes', 'OpenClaw'] as const) {
         const outcome = await installForAgent({
           slug: 'x',
-          mcpUrl: 'http://127.0.0.1:9200/mcp/x',
+          mcpUrl: 'http://127.0.0.1:9200/mcp',
           harness,
         })
         expect(outcome.installed).toBe(true)
@@ -126,7 +126,7 @@ describe('harness install service', () => {
       setMcpManagerForTesting(stub)
       const outcome = await installForAgent({
         slug: 'broken',
-        mcpUrl: 'http://127.0.0.1:9200/mcp/broken',
+        mcpUrl: 'http://127.0.0.1:9200/mcp',
         harness: 'Claude Desktop',
       })
       expect(outcome.installed).toBe(false)
@@ -248,7 +248,7 @@ describe('harness install service', () => {
         name: created.slug,
         spec: {
           command: 'npx',
-          args: ['mcp-remote', `http://127.0.0.1:9512/mcp/${created.slug}`],
+          args: ['mcp-remote', 'http://127.0.0.1:9512/mcp'],
         },
       })
       const link = stub.calls.find((c) => c.method === 'link')
@@ -264,7 +264,7 @@ describe('harness install service', () => {
       const previousSpec = {
         transport: 'stdio' as const,
         command: 'npx',
-        args: ['mcp-remote', 'http://127.0.0.1:9200/mcp/existing'],
+        args: ['mcp-remote', 'http://127.0.0.1:9200/mcp'],
       }
       stub.listLinks = async () => {
         stub.calls.push({
@@ -306,7 +306,7 @@ describe('harness install service', () => {
 
       const outcome = await installForAgent({
         slug: 'existing',
-        mcpUrl: 'http://127.0.0.1:9512/mcp/existing',
+        mcpUrl: 'http://127.0.0.1:9512/mcp',
         harness: 'Claude Desktop',
       })
 
@@ -317,7 +317,7 @@ describe('harness install service', () => {
       expect(addCalls[0]?.payload).toMatchObject({
         name: 'existing',
         spec: {
-          args: ['mcp-remote', 'http://127.0.0.1:9512/mcp/existing'],
+          args: ['mcp-remote', 'http://127.0.0.1:9512/mcp'],
         },
       })
       expect(addCalls[1]?.payload).toMatchObject({
@@ -344,10 +344,12 @@ describe('harness install service', () => {
       expect(rotated).not.toBeNull()
       const linkCall = stub.calls.find((c) => c.method === 'link')
       const unlinkCall = stub.calls.find((c) => c.method === 'unlink')
-      expect(linkCall?.payload).toMatchObject({
-        serverName: rotated?.mcpUrl.split('/').pop(),
-        agent: 'claude-desktop',
-      })
+      const linkedServerName = (
+        linkCall?.payload as { serverName?: string } | undefined
+      )?.serverName
+      expect(linkedServerName).toMatch(/^rotate-me-[a-z0-9-]+$/)
+      expect(linkedServerName).not.toBe(created.slug)
+      expect(linkCall?.payload).toMatchObject({ agent: 'claude-desktop' })
       expect(unlinkCall?.payload).toMatchObject({
         serverName: created.slug,
         agent: 'claude-desktop',

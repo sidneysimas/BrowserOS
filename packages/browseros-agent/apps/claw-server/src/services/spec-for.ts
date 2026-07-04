@@ -10,9 +10,9 @@
  * a parallel allow-list here. Stdio-only agents fall back to wrapping
  * the URL via `npx mcp-remote`, the same approach `apps/server` uses.
  *
- * Used by both the legacy per-agent install (`harness-install.ts`)
- * and the v2 single-endpoint install (`browseros-connect.ts`) so the
- * transport rule lives in one place.
+ * Used by both profile installs (`harness-install.ts`) and the
+ * single shared install (`browseros-connect.ts`) so the transport
+ * rule lives in one place.
  */
 
 import {

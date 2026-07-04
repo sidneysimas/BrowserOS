@@ -6,7 +6,7 @@
  * Wires a cockpit agent profile into the user's chosen harness's MCP
  * config file via `agent-mcp-manager`. Each cockpit profile becomes
  * one entry in the harness's config, keyed by the profile's slug,
- * pointing at `http://127.0.0.1:9200/mcp/<slug>`.
+ * pointing at the canonical `http://127.0.0.1:9200/mcp` endpoint.
  *
  * `installForAgent` runs on POST /agents (right after the profile
  * file is written). `uninstallForAgent` runs on DELETE /agents/:id

@@ -6,8 +6,8 @@
  * Walks the v2 single-MCP endpoint with the real SDK Client. Confirms
  * that the shared transport assigns a session id, captures the
  * connecting agent's `clientInfo` into the identity service, and
- * exposes the same browser-tool catalogue the legacy per-slug route
- * served. No browser session is bound, so tool dispatch surfaces the
+ * exposes the browser-tool catalogue. No browser session is bound, so
+ * tool dispatch surfaces the
  * "session not connected" short-circuit, which is enough to prove the
  * dispatch path picked up identity from `extra.sessionId`.
  */
@@ -21,6 +21,25 @@ import {
 } from '../../../src/lib/mcp-session'
 import { resetSingleMcpInstanceForTesting } from '../../../src/mcp/single-server'
 import app from '../../../src/server'
+
+const REAL_CATALOGUE = [
+  'act',
+  'diff',
+  'download',
+  'evaluate',
+  'grep',
+  'navigate',
+  'pdf',
+  'read',
+  'run',
+  'screenshot',
+  'snapshot',
+  'tab_groups',
+  'tabs',
+  'upload',
+  'wait',
+  'windows',
+] as const
 
 async function connect(clientName: string, clientVersion = '0.0.1') {
   const transport = new StreamableHTTPClientTransport(
@@ -62,14 +81,11 @@ describe('POST /mcp (single endpoint)', () => {
     await client.close()
   })
 
-  test('tools/list returns the same catalogue as the legacy route', async () => {
+  test('tools/list returns the browser tool catalogue', async () => {
     const { client } = await connect('claude-code')
     const list = await client.listTools()
     const names = list.tools.map((t) => t.name).sort()
-    expect(names).toContain('navigate')
-    expect(names).toContain('tabs')
-    expect(names).toContain('screenshot')
-    expect(names.length).toBeGreaterThanOrEqual(10)
+    expect(names).toEqual([...REAL_CATALOGUE])
     await client.close()
   })
 

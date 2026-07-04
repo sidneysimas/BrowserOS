@@ -5,9 +5,7 @@
  *
  * Module-local singleton holding the URL the Hono server bound to.
  * Set once by main.ts after Bun.serve resolves; read by anything that
- * needs to compose URLs reachable from inside the same process (e.g.
- * the future per-agent MCP route mux will embed this in mcpServers
- * configs handed to spawned host agents).
+ * needs to compose URLs reachable from inside the same process.
  *
  * Plain mutable string rather than a hook/store because writer and
  * reader live in the same Bun process and the value is written

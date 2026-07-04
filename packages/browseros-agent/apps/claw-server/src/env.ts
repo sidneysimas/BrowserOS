@@ -23,18 +23,6 @@ function readIsDevelopment(): boolean {
 }
 
 /**
- * Opt-in gate for legacy MCP surfaces. Defaults to `false` so the
- * legacy path is invisible unless explicitly requested.
- */
-function readBoolFlag(name: string): boolean {
-  // biome-ignore lint/style/noProcessEnv: env.ts is the sanctioned env-reader for the package
-  const raw = process.env[name]
-  if (raw === undefined) return false
-  const normalised = raw.trim().toLowerCase()
-  return normalised === '1' || normalised === 'true'
-}
-
-/**
  * Parse a positive integer ms override, falling back to the
  * provided default on any non-positive / non-finite input. Used
  * for runtime tunables (sweep interval, idle timeout) the operator
@@ -67,7 +55,7 @@ function readBoolFlagDefaultTrue(name: string): boolean {
  * startup config before serving; tests may mutate fields for isolation.
  */
 export const env = {
-  port: CLAW_API_PORT_DEFAULT,
+  serverPort: CLAW_API_PORT_DEFAULT,
   proxyPort: null as number | null,
   cdpPort: CLAW_CDP_PORT_DEFAULT,
   resourcesDir: resolveDefaultResourcesDir(),
@@ -96,19 +84,8 @@ export const env = {
 
 /** Applies validated startup config to the shared runtime snapshot. */
 export function applyClawConfig(config: ClawConfig): void {
-  env.port = config.port
+  env.serverPort = config.serverPort
   env.proxyPort = config.proxyPort ?? null
   env.cdpPort = config.cdpPort
   env.resourcesDir = config.resourcesDir
-}
-
-/**
- * Request-time read of the legacy per-slug MCP gate. Evaluated at
- * call time (not once at module load) so the existing per-slug
- * integration tests can flip the flag from `beforeAll` without
- * juggling import order. Default is `false`: the legacy URL shape
- * returns 404 unless the flag is explicitly set.
- */
-export function isCockpitLegacyPerAgentMcpEnabled(): boolean {
-  return readBoolFlag('COCKPIT_LEGACY_PER_AGENT_MCP')
 }

@@ -58,7 +58,7 @@ describe('/agents routes', () => {
       const created = await createRes.json()
       expect(created.harness).toBe('Claude Desktop')
       expect(created.slug).toBe('cowork-finance-ops')
-      expect(created.mcpUrl).toMatch(/\/mcp\/cowork-finance-ops$/)
+      expect(created.mcpUrl).toBe('http://127.0.0.1:9200/mcp')
       expect(created.cliCommand).toBe('mcp add cowork-finance-ops')
 
       // list
@@ -93,8 +93,7 @@ describe('/agents routes', () => {
       expect(regenRes.status).toBe(200)
       const regen = await regenRes.json()
       expect(regen.id).toBe(created.id)
-      expect(regen.mcpUrl).not.toBe(updated.mcpUrl)
-      expect(regen.mcpUrl).toMatch(/\/mcp\/renamed-[a-z0-9-]+$/)
+      expect(regen.mcpUrl).toBe(updated.mcpUrl)
 
       // delete
       const delRes = await api.agents[':id'].$delete({

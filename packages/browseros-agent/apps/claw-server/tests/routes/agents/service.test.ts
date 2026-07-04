@@ -47,6 +47,19 @@ async function withProxyPort<T>(
   }
 }
 
+async function withServerPort<T>(
+  port: number,
+  fn: () => Promise<T>,
+): Promise<T> {
+  const previous = env.serverPort
+  env.serverPort = port
+  try {
+    return await fn()
+  } finally {
+    env.serverPort = previous
+  }
+}
+
 describe('agents service', () => {
   test('create persists a stored profile that round-trips through the schema', async () => {
     await withTempBrowserosDir(async (dir) => {
@@ -74,16 +87,25 @@ describe('agents service', () => {
     })
   })
 
-  test('create stores and installs the trusted proxy MCP base URL', async () => {
+  test('create stores and installs the trusted proxy MCP URL', async () => {
     await withProxyPort(9512, async () => {
       await withTempBrowserosDir(async () => {
         const created = await agents.create(makeInput({ name: 'Proxy Split' }))
-        expect(created.mcpUrl).toBe('http://127.0.0.1:9512/mcp/proxy-split')
+        expect(created.mcpUrl).toBe('http://127.0.0.1:9512/mcp')
         const stored = await readJson(
           `agents/${created.id}.json`,
           storedAgentProfileSchema,
         )
         expect(stored.mcpUrl).toBe(created.mcpUrl)
+      })
+    })
+  })
+
+  test('create falls back to the server bind port when no proxy is configured', async () => {
+    await withServerPort(9321, async () => {
+      await withTempBrowserosDir(async () => {
+        const created = await agents.create(makeInput({ name: 'Bind Port' }))
+        expect(created.mcpUrl).toBe('http://127.0.0.1:9321/mcp')
       })
     })
   })
@@ -109,7 +131,7 @@ describe('agents service', () => {
       expect(row.alwaysAllowCount).toBe(0)
       expect(row.lastRunAt).toBe('Never run')
       expect(row.status).toBe('configured')
-      expect(row.mcpUrl).toMatch(/\/mcp\/selective-agent$/)
+      expect(row.mcpUrl).toBe('http://127.0.0.1:9200/mcp')
     })
   })
 
@@ -118,7 +140,7 @@ describe('agents service', () => {
       await withTempBrowserosDir(async () => {
         await agents.create(makeInput({ name: 'Listed Proxy' }))
         const rows = await agents.list()
-        expect(rows[0]?.mcpUrl).toBe('http://127.0.0.1:9512/mcp/listed-proxy')
+        expect(rows[0]?.mcpUrl).toBe('http://127.0.0.1:9512/mcp')
       })
     })
   })
@@ -224,15 +246,20 @@ describe('agents service', () => {
     })
   })
 
-  test('regenerateMcpUrl rotates the slug and persists the new URL', async () => {
+  test('regenerateMcpUrl rotates the slug and keeps the canonical URL', async () => {
     await withTempBrowserosDir(async () => {
       const created = await agents.create(makeInput({ name: 'Rotate' }))
       const result = await agents.regenerateMcpUrl(created.id)
       expect(result).not.toBeNull()
       if (!result) throw new Error('unreachable')
       expect(result.id).toBe(created.id)
-      expect(result.mcpUrl).not.toBe(created.mcpUrl)
-      expect(result.mcpUrl).toMatch(/\/mcp\/rotate-[a-z0-9-]+$/)
+      expect(result.mcpUrl).toBe(created.mcpUrl)
+      const stored = await readJson(
+        `agents/${created.id}.json`,
+        storedAgentProfileSchema,
+      )
+      expect(stored.slug).not.toBe(created.slug)
+      expect(stored.slug).toMatch(/^rotate-[a-z0-9-]+$/)
       const detail = await agents.getDetail(created.id)
       expect(detail).not.toBeNull()
     })
@@ -246,9 +273,7 @@ describe('agents service', () => {
         )
         const result = await agents.regenerateMcpUrl(created.id)
         expect(result).not.toBeNull()
-        expect(result?.mcpUrl).toMatch(
-          /^http:\/\/127\.0\.0\.1:9512\/mcp\/rotate-public-[a-z0-9-]+$/,
-        )
+        expect(result?.mcpUrl).toBe('http://127.0.0.1:9512/mcp')
       })
     })
   })
@@ -319,22 +344,6 @@ describe('agents service', () => {
       for (let i = 2; i <= count; i++) {
         expect(slugs).toContain(`race-${i}`)
       }
-    })
-  })
-
-  test('findBySlug returns the profile owning the slug, null otherwise', async () => {
-    await withTempBrowserosDir(async () => {
-      const a = await agents.create(makeInput({ name: 'Find Me' }))
-      const b = await agents.create(makeInput({ name: 'Other Agent' }))
-      const found = await agents.findBySlug(a.slug)
-      expect(found?.id).toBe(a.id)
-      const other = await agents.findBySlug(b.slug)
-      expect(other?.id).toBe(b.id)
-      expect(await agents.findBySlug('does-not-exist')).toBeNull()
-      // Empty directory after wipe (separate temp dir is the simplest).
-    })
-    await withTempBrowserosDir(async () => {
-      expect(await agents.findBySlug('any-slug')).toBeNull()
     })
   })
 

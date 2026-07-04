@@ -25,7 +25,6 @@ import { auditTasksRoute } from './routes/audit/tasks'
 import { auditReplayRoute } from './routes/audit-replay'
 import { replayTabsRoute } from './routes/audit-replay/tabs'
 import { connectionsRoute } from './routes/connections'
-import { mcpRoute } from './routes/mcp'
 import { mcpV2Route } from './routes/mcp-v2'
 import { permissionsRoute } from './routes/permissions'
 import { siteRulesRoute } from './routes/site-rules'
@@ -74,18 +73,13 @@ app.onError((err, c) => {
   return c.json({ error: message }, 500)
 })
 
-// v2 single-MCP route always mounts at `/mcp`. The legacy per-slug
-// route at `/mcp/:slug` also mounts always, but its handler returns
-// 404 unless `COCKPIT_LEGACY_PER_AGENT_MCP=1` is set; the gate runs
-// per-request so tests can flip it from `beforeAll` without juggling
-// import order.
+// The single MCP endpoint mounts at `/mcp`.
 const routes = app
   .route('/', systemRoute)
   .route('/', agentsRoute)
   .route('/', siteRulesRoute)
   .route('/', permissionsRoute)
   .route('/', mcpV2Route)
-  .route('/', mcpRoute)
   .route('/', tabsRoute)
   .route('/', tabsFocusRoute)
   .route('/', agentsControlRoute)

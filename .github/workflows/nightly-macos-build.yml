@@ -153,7 +153,7 @@ jobs:
         run: |
           set -euo pipefail
           cd "$BROWSEROS_REPO/packages/browseros"
-          version="$(uv run python build/scripts/bump_version.py --mode "$BUMP_MODE")"
+          version="$(uv run python bos_build/scripts/bump_version.py --mode "$BUMP_MODE")"
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "Built version: $version"
 

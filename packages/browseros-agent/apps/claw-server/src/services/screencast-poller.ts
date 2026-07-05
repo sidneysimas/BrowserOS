@@ -26,18 +26,12 @@
  */
 
 import type { BrowserSession } from '@browseros/browser-core/core/session'
-import { BROWSER_TOOLS } from '@browseros/browser-mcp/registry'
-import {
-  executeTool,
-  type ToolDefinition,
-} from '@browseros/browser-mcp/tools/framework'
 import { logger } from '../lib/logger'
 import {
   tabActivityRegistry as defaultRegistry,
   type TabActivityRegistry,
 } from '../lib/tab-activity'
 import { screencastCache } from './screencast-cache'
-import { extractToolResultImageData } from './tool-result-image'
 
 export const DEFAULT_POLL_INTERVAL_MS = 1500
 export const SCREENSHOT_TIMEOUT_MS = 2000
@@ -65,24 +59,26 @@ export function startScreencastPoller(
 ): ScreencastPollerHandle {
   const intervalMs = opts.intervalMs ?? DEFAULT_POLL_INTERVAL_MS
   const registry = opts.registry ?? defaultRegistry
-  const screenshotTool = BROWSER_TOOLS.find((t) => t.name === 'screenshot')
-  if (!screenshotTool) {
-    // The browser-mcp catalogue not exposing a screenshot tool would
-    // be a contract break we discover at boot; rather than throw and
-    // crash the cockpit, log loudly and return a no-op handle so the
-    // homepage gracefully falls back to placeholders.
-    logger.error(
-      'screencast: screenshot tool missing from BROWSER_TOOLS; poller will not start',
-    )
-    return { stop: () => undefined }
-  }
+
+  // Tracks CDP screenshot calls still resolving on Chromium's side.
+  // The `running` flag below stops a tick from overlapping with
+  // itself, but it does NOT stop individual snapOne calls from
+  // stacking: session.screenshot() has no AbortSignal support, so
+  // when a snapOne times out its outer Promise.race settles but the
+  // underlying capture keeps running. Under sustained sluggishness
+  // each 1.5s tick would fire a fresh CDP call for the same page on
+  // top of the last one. inFlight is a per-page guard; snapOne
+  // early-returns when the page id is already present, and the
+  // guard entry is cleared by the outstanding capture promise's
+  // .finally() when the CDP call actually resolves or rejects.
+  const inFlight = new Set<number>()
 
   let running = false
   const tick = async (): Promise<void> => {
     if (running) return
     running = true
     try {
-      await runTick(opts.session, screenshotTool, registry)
+      await runTick(opts.session, registry, inFlight)
     } catch (err) {
       logger.warn('screencast: tick failed', {
         error: err instanceof Error ? err.message : String(err),
@@ -114,8 +110,8 @@ export function startScreencastPoller(
 
 async function runTick(
   session: BrowserSession,
-  screenshotTool: ToolDefinition,
   registry: TabActivityRegistry,
+  inFlight: Set<number>,
 ): Promise<void> {
   const tabs = registry.snapshot()
   const livePageIds = new Set<number>()
@@ -143,7 +139,7 @@ async function runTick(
   for (let i = 0; i < work.length; i += MAX_PARALLEL_SHOTS) {
     const batch = work.slice(i, i + MAX_PARALLEL_SHOTS)
     await Promise.allSettled(
-      batch.map((pageId) => snapOne(pageId, session, screenshotTool)),
+      batch.map((pageId) => snapOne(pageId, session, inFlight)),
     )
   }
 }
@@ -151,56 +147,91 @@ async function runTick(
 async function snapOne(
   pageId: number,
   session: BrowserSession,
-  screenshotTool: ToolDefinition,
+  inFlight: Set<number>,
 ): Promise<void> {
+  // Per-page in-flight guard: see the docstring on `inFlight` at
+  // startScreencastPoller for why this is not covered by the
+  // tick-level `running` flag.
+  if (inFlight.has(pageId)) return
+  inFlight.add(pageId)
+
+  // Attach the .finally() BEFORE Promise.race so the guard entry is
+  // released when the CDP call actually resolves, not when the race
+  // timeout wins. If session.screenshot() rejects, .finally() still
+  // fires and Promise.race sees the rejection through this chained
+  // promise, so no unhandled rejection is orphaned.
+  const capturePromise = session
+    .screenshot(pageId, {
+      format: 'jpeg',
+      quality: JPEG_QUALITY,
+      annotate: false,
+    })
+    .finally(() => {
+      inFlight.delete(pageId)
+    })
+
   try {
-    const result = await executeTool(
-      screenshotTool,
-      {
-        page: pageId,
-        format: 'jpeg',
-        quality: JPEG_QUALITY,
-        annotate: false,
-      },
-      {
-        session,
-        signal: AbortSignal.timeout(SCREENSHOT_TIMEOUT_MS),
-      },
-    )
-    if (result.isError) {
+    // Call session.screenshot() directly, WITHOUT a clip. The MCP
+    // screenshot tool's default path (via executeTool) computes
+    // clip = { width, height, scale = min(1, targetW/vw, targetH/vh) }
+    // to fit the capture inside a 1024x768 target. When the actual
+    // viewport is bigger than 1024x768 the scale is < 1, and on the
+    // BrowserOS Chromium fork Page.captureScreenshot({clip: {scale
+    // != 1}}) visibly resizes the tab the user is watching for the
+    // duration of the capture, then restores. The poller runs every
+    // 1.5s, so the operator sees the driven tab flicker (shrink
+    // then expand) at the poll cadence.
+    //
+    // The poller does not need the tool's size-capping behaviour:
+    // MiniScreencast paints frames at a fixed 132px height and
+    // downscales in the browser. Capturing at the natural viewport
+    // (scale = 1, no clip) keeps the JPEG cost roughly the same
+    // after downscaling and avoids the reflow.
+    const result = await Promise.race([
+      capturePromise,
+      new Promise<never>((_, reject) => {
+        AbortSignal.timeout(SCREENSHOT_TIMEOUT_MS).addEventListener(
+          'abort',
+          () => reject(new Error('screenshot timeout')),
+        )
+      }),
+    ])
+    if (!result.data || result.data.length === 0) {
       // Drop the cached frame once we cross the backoff threshold.
       // Holding on to the previous JPEG after the agent has navigated
-      // away (e.g. into a cross-origin iframe that the screenshot tool
-      // cannot capture) means /tabs/activity returns the OLD page's
-      // image with the NEW page's URL + title until backoff lifts.
-      // One transient failure still keeps the frame (cheap recovery
-      // for one-off CDP hiccups); sustained failures drop it so the
-      // UI falls back to the placeholder honestly.
-      if (screencastCache.markFailure(pageId)) {
-        screencastCache.clearFrame(pageId)
-      }
-      return
-    }
-    const image = extractToolResultImageData(result)
-    if (!image) {
+      // away (e.g. into a cross-origin iframe that the screenshot
+      // path cannot capture) means /tabs/activity returns the OLD
+      // page's image with the NEW page's URL + title until backoff
+      // lifts. One transient failure still keeps the frame (cheap
+      // recovery for one-off CDP hiccups); sustained failures drop
+      // it so the UI falls back to the placeholder honestly.
       if (screencastCache.markFailure(pageId)) {
         screencastCache.clearFrame(pageId)
       }
       return
     }
     screencastCache.set(pageId, {
-      jpegBase64: image,
+      jpegBase64: result.data,
       capturedAt: Date.now(),
-      byteLength: estimateBase64Bytes(image),
+      byteLength: estimateBase64Bytes(result.data),
     })
     screencastCache.clearFailure(pageId)
   } catch (err) {
+    // Match the pre-refactor semantic: on backoff crossing, drop
+    // the stale frame but KEEP the failure counter so isInBackoff
+    // still reports true until a fresh dispatch on the tab lifts
+    // the block. The previous impl called .delete() from this
+    // branch, but that only fired when executeTool itself threw;
+    // the far more common CDP soft-failure landed in the isError
+    // branch which used clearFrame. session.screenshot() has no
+    // soft-failure mode - every failure throws - so consolidate on
+    // the more forgiving clearFrame path.
     logger.warn('screencast: snap failed', {
       pageId,
       error: err instanceof Error ? err.message : String(err),
     })
     if (screencastCache.markFailure(pageId)) {
-      screencastCache.delete(pageId)
+      screencastCache.clearFrame(pageId)
     }
   }
 }

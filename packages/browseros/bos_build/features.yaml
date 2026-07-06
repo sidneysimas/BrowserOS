@@ -53,6 +53,7 @@ features:
       # Custom vector icons
       - components/vector_icons/BUILD.gn
       - components/vector_icons/chat_orange.icon
+      - chrome/app/theme/
 
   browserclaw-product-dir:
     description: "feat: per-product user-data dir via browseros_product buildflag"

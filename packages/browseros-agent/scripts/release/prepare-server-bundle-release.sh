@@ -3,7 +3,7 @@ set -euo pipefail
 
 usage() {
   cat >&2 <<'EOF'
-Usage: prepare-server-bundle-release.sh --event-name <push|workflow_dispatch|workflow_call> --default-branch <branch> --ref-name <ref> --tag-prefix <prefix> --package-json <path> --release-name <name> --component-name <name> [--legacy-prefix <prefix>] [--requested-version <X.Y.Z>] [--release-ref <ref>] [--remote <name>]
+Usage: prepare-server-bundle-release.sh --event-name <push|workflow_dispatch|workflow_call> --default-branch <branch> --ref-name <ref> --tag-prefix <prefix> (--package-json <path>|--cargo-toml <path>) --release-name <name> --component-name <name> [--legacy-prefix <prefix>] [--requested-version <X.Y.Z>] [--release-ref <ref>] [--remote <name>]
 EOF
 }
 
@@ -16,6 +16,7 @@ remote="origin"
 tag_prefix=""
 legacy_prefixes=()
 package_json=""
+cargo_toml=""
 release_name=""
 component_name=""
 
@@ -57,6 +58,10 @@ while [ "$#" -gt 0 ]; do
       package_json="${2:-}"
       shift 2
       ;;
+    --cargo-toml)
+      cargo_toml="${2:-}"
+      shift 2
+      ;;
     --release-name)
       release_name="${2:-}"
       shift 2
@@ -80,9 +85,15 @@ done
 if [ -z "$event_name" ] ||
   [ -z "$default_branch" ] ||
   [ -z "$tag_prefix" ] ||
-  [ -z "$package_json" ] ||
   [ -z "$release_name" ] ||
   [ -z "$component_name" ]; then
+  usage
+  exit 2
+fi
+
+if { [ -z "$package_json" ] && [ -z "$cargo_toml" ]; } ||
+  { [ -n "$package_json" ] && [ -n "$cargo_toml" ]; }; then
+  echo "Exactly one of --package-json or --cargo-toml is required." >&2
   usage
   exit 2
 fi
@@ -138,13 +149,40 @@ resolve_release_sha() {
 
 read_package_version_at_ref() {
   local ref="$1"
-  if ! git show "$ref:$package_json" | python3 -c '
+  if [ -n "$package_json" ]; then
+    if ! git show "$ref:$package_json" | python3 -c '
 import json
 import sys
 
 print(json.load(sys.stdin)["version"])
 '; then
-    echo "::error::Could not read $package_json version at $ref."
+      echo "::error::Could not read $package_json version at $ref."
+      exit 1
+    fi
+    return 0
+  fi
+
+  if ! git show "$ref:$cargo_toml" | python3 -c '
+import re
+import sys
+
+in_package = False
+for raw_line in sys.stdin:
+    line = raw_line.strip()
+    if line == "[package]":
+        in_package = True
+        continue
+    if in_package and line.startswith("["):
+        break
+    if not in_package:
+        continue
+    match = re.fullmatch(r"version\s*=\s*\"([^\"]+)\"", line)
+    if match:
+        print(match.group(1))
+        sys.exit(0)
+raise SystemExit("missing [package] version")
+'; then
+    echo "::error::Could not read $cargo_toml version at $ref."
     exit 1
   fi
 }

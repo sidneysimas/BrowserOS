@@ -69,6 +69,9 @@ describe('release-claw-server-rust workflow', () => {
   it('uses matching artifact actions without unused Python dependencies', () => {
     expect(workflow).toContain('uses: actions/upload-artifact@v7')
     expect(workflow).toContain('uses: actions/download-artifact@v7')
+    expect(workflow).toContain(
+      '"$PYTHON_BIN -m pip install --user ./packages/browseros"',
+    )
     expect(workflow).not.toContain('pyyaml')
   })
 

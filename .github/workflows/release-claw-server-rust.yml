@@ -199,6 +199,10 @@ jobs:
             echo "PYTHON_BIN=python3" >> "$GITHUB_ENV"
           fi
 
+      - name: Install Python validation dependencies
+        shell: bash
+        run: "$PYTHON_BIN -m pip install --user ./packages/browseros"
+
       - name: Setup Rust
         shell: bash
         run: |

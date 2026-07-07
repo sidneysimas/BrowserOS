@@ -28,6 +28,7 @@ pub struct SnapshotResult {
 pub struct ResolvedElement {
     pub session: ProtocolSession,
     pub backend_node_id: i64,
+    pub entry: RefEntry,
 }
 
 #[derive(Debug, Clone)]
@@ -387,6 +388,7 @@ pub async fn resolve_ref_entry(
         return Ok(ResolvedElement {
             session: session.clone(),
             backend_node_id: entry.backend_node_id,
+            entry: entry.clone(),
         });
     }
 
@@ -402,6 +404,7 @@ pub async fn resolve_ref_entry(
     Ok(ResolvedElement {
         session: session.clone(),
         backend_node_id: fresh,
+        entry: entry.clone(),
     })
 }
 

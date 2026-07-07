@@ -3,6 +3,61 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 
 const BOUNDS_JS: &str = include_str!("../assets/geometry.js");
+const HIT_TEST_BLOCKER_JS: &str = r#"
+function(x, y) {
+    const target = this;
+    const rootDocument = () => {
+        let doc = target.ownerDocument || document;
+        while (doc.defaultView && doc.defaultView.frameElement) {
+            doc = doc.defaultView.frameElement.ownerDocument;
+        }
+        return doc;
+    };
+    const up = (node) => {
+        if (!node) return null;
+        return node.parentNode || node.host || (node.getRootNode && node.getRootNode().host) || null;
+    };
+    const reaches = (from, to) => {
+        for (let node = from; node; node = up(node)) {
+            if (node === to) return true;
+        }
+        return false;
+    };
+    const blockerAt = (doc, el, pointX, pointY) => {
+        let currentDoc = doc;
+        let localX = pointX;
+        let localY = pointY;
+        let hit = currentDoc.elementFromPoint(localX, localY);
+        while (hit && (hit.tagName === 'IFRAME' || hit.tagName === 'FRAME') && hit !== el) {
+            let childDoc = null;
+            try {
+                childDoc = hit.contentDocument;
+            } catch (_err) {
+                childDoc = null;
+            }
+            if (!childDoc) break;
+            const rect = hit.getBoundingClientRect();
+            localX -= rect.x + hit.clientLeft;
+            localY -= rect.y + hit.clientTop;
+            currentDoc = childDoc;
+            hit = currentDoc.elementFromPoint(localX, localY);
+        }
+        if (!hit || hit === el || reaches(hit, el) || reaches(el, hit)) return null;
+        const hitLabel = hit.closest ? hit.closest('label') : null;
+        if (hitLabel && (hitLabel.control === el || hitLabel.contains(el))) return null;
+        const elLabel = el.closest ? el.closest('label') : null;
+        if (elLabel && elLabel.contains(hit)) return null;
+        let desc = hit.tagName ? hit.tagName.toLowerCase() : 'element';
+        if (hit.id) {
+            desc += '#' + hit.id;
+        } else if (typeof hit.className === 'string' && hit.className.trim()) {
+            desc += '.' + hit.className.trim().split(/\s+/)[0];
+        }
+        return desc;
+    };
+    return blockerAt(rootDocument(), target, x, y);
+}
+"#;
 
 #[derive(Debug, Deserialize)]
 struct QuadsResult {
@@ -112,6 +167,32 @@ pub async fn scroll_into_view(session: &ProtocolSession, backend_node_id: i64) {
         .await;
 }
 
+pub async fn click_blocker_at_point(
+    session: &ProtocolSession,
+    backend_node_id: i64,
+    point: Point,
+) -> Result<Option<String>, CoreError> {
+    let object_id = resolve_object_id(session, backend_node_id, None).await?;
+    let result: CallFunctionResult = session
+        .send(
+            "Runtime.callFunctionOn",
+            json!({
+                "functionDeclaration": HIT_TEST_BLOCKER_JS,
+                "objectId": object_id,
+                "returnByValue": true,
+                "arguments": [
+                    { "value": point.x },
+                    { "value": point.y }
+                ]
+            }),
+        )
+        .await?;
+    Ok(result
+        .result
+        .value
+        .and_then(|value| value.as_str().map(ToString::to_string)))
+}
+
 pub async fn focus_element(
     session: &ProtocolSession,
     backend_node_id: i64,
@@ -211,5 +292,152 @@ fn quad_center(quad: &[f64]) -> Point {
     Point {
         x: (quad[0] + quad[2] + quad[4] + quad[6]) / 4.0,
         y: (quad[1] + quad[3] + quad[5] + quad[7]) / 4.0,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::click_blocker_at_point;
+    use crate::{CoreError, ProtocolSession, connection::CdpConnection, input::Point};
+    use browseros_cdp::{CdpError, CdpEvent};
+    use futures_util::future::BoxFuture;
+    use serde_json::{Value, json};
+    use std::sync::{Arc, Mutex};
+    use tokio::sync::broadcast;
+
+    #[derive(Clone, Copy)]
+    enum HitTestResponse {
+        Blocked(&'static str),
+        Clear,
+        Error,
+    }
+
+    struct MockConnection {
+        response: HitTestResponse,
+        calls: Mutex<Vec<Value>>,
+    }
+
+    impl CdpConnection for MockConnection {
+        fn send<'a>(
+            &'a self,
+            method: &'a str,
+            params: Value,
+            _session: Option<&'a crate::SessionId>,
+        ) -> BoxFuture<'a, Result<Value, CdpError>> {
+            Box::pin(async move {
+                match method {
+                    "DOM.resolveNode" => Ok(json!({ "object": { "objectId": "target-object" } })),
+                    "Runtime.callFunctionOn" => {
+                        if let Ok(mut calls) = self.calls.lock() {
+                            calls.push(params);
+                        }
+                        match self.response {
+                            HitTestResponse::Blocked(blocker) => {
+                                Ok(json!({ "result": { "value": blocker } }))
+                            }
+                            HitTestResponse::Clear => Ok(json!({ "result": { "value": null } })),
+                            HitTestResponse::Error => Err(CdpError::Protocol {
+                                code: -32000,
+                                message: "execution context unavailable".to_string(),
+                            }),
+                        }
+                    }
+                    _ => Ok(json!({})),
+                }
+            })
+        }
+
+        fn send_raw_json<'a>(
+            &'a self,
+            _method: &'a str,
+            _params_json: &'a str,
+            _session: Option<&'a crate::SessionId>,
+        ) -> BoxFuture<'a, Result<String, CdpError>> {
+            Box::pin(async { Ok("{}".to_string()) })
+        }
+
+        fn events(&self) -> broadcast::Receiver<CdpEvent> {
+            let (_tx, rx) = broadcast::channel(1);
+            rx
+        }
+
+        fn is_connected(&self) -> bool {
+            true
+        }
+
+        fn connection_epoch(&self) -> u64 {
+            1
+        }
+    }
+
+    fn session_with(response: HitTestResponse) -> (Arc<MockConnection>, ProtocolSession) {
+        let connection = Arc::new(MockConnection {
+            response,
+            calls: Mutex::new(Vec::new()),
+        });
+        (connection.clone(), ProtocolSession::root(connection))
+    }
+
+    #[tokio::test]
+    async fn click_blocker_at_point_returns_blocker_descriptor() -> Result<(), CoreError> {
+        let (connection, session) = session_with(HitTestResponse::Blocked("div#consent-banner"));
+
+        let blocker = click_blocker_at_point(&session, 10, Point { x: 50.0, y: 25.0 }).await?;
+
+        assert_eq!(blocker, Some("div#consent-banner".to_string()));
+        let calls = match connection.calls.lock() {
+            Ok(calls) => calls.clone(),
+            Err(_err) => Vec::new(),
+        };
+        assert_eq!(calls.len(), 1);
+        assert_eq!(
+            calls
+                .first()
+                .and_then(|call| call.get("arguments"))
+                .and_then(Value::as_array)
+                .map(Vec::len),
+            Some(2)
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn click_blocker_at_point_allows_descendant_target_hits() -> Result<(), CoreError> {
+        let (_connection, session) = session_with(HitTestResponse::Clear);
+
+        let blocker = click_blocker_at_point(&session, 10, Point { x: 50.0, y: 25.0 }).await?;
+
+        assert_eq!(blocker, None);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn click_blocker_script_walks_shadow_hosts() -> Result<(), CoreError> {
+        let (connection, session) = session_with(HitTestResponse::Clear);
+
+        let blocker = click_blocker_at_point(&session, 10, Point { x: 50.0, y: 25.0 }).await?;
+
+        assert_eq!(blocker, None);
+        let calls = match connection.calls.lock() {
+            Ok(calls) => calls.clone(),
+            Err(_err) => Vec::new(),
+        };
+        let function = calls
+            .first()
+            .and_then(|call| call.get("functionDeclaration"))
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+        assert!(function.contains("getRootNode"));
+        assert!(function.contains(".host"));
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn click_blocker_at_point_surfaces_hit_test_failures() {
+        let (_connection, session) = session_with(HitTestResponse::Error);
+
+        let result = click_blocker_at_point(&session, 10, Point { x: 50.0, y: 25.0 }).await;
+
+        assert!(result.is_err());
     }
 }

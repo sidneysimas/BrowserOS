@@ -16,7 +16,7 @@ pub mod windows;
 
 pub use browser::Browser;
 pub use connection::{CdpConnection, ProtocolSession};
-pub use error::CoreError;
+pub use error::{CoreError, CoveredElementTarget};
 pub use session::{BrowserSession, BrowserSessionHooks};
 pub use types::{FrameId, PageId, Ref, SessionId, TabId, TargetId, WindowId};
 

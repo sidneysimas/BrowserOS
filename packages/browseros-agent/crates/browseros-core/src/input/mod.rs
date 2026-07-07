@@ -2,9 +2,13 @@ pub mod geometry;
 pub mod keyboard;
 pub mod mouse;
 
-use crate::{CoreError, PageId, ProtocolSession, Ref, observer::Observer, pages::PageManager};
+use crate::{
+    CoreError, CoveredElementTarget, PageId, ProtocolSession, Ref, observer::Observer,
+    pages::PageManager, snapshot::RefEntry,
+};
 use geometry::{
-    call_on_element, focus_element, get_element_center, get_input_value, js_click, scroll_into_view,
+    call_on_element, click_blocker_at_point, focus_element, get_element_center, get_input_value,
+    js_click, scroll_into_view,
 };
 use mouse::{MouseButton, dispatch_click, dispatch_drag, dispatch_hover, dispatch_scroll};
 use serde_json::{Value, json};
@@ -47,6 +51,36 @@ pub struct Input {
     page_id: PageId,
 }
 
+#[derive(Debug, Clone)]
+struct InputTarget {
+    backend_node_id: i64,
+    error_target: CoveredElementTarget,
+}
+
+impl InputTarget {
+    fn from_ref_entry(entry: &RefEntry) -> Self {
+        Self {
+            backend_node_id: entry.backend_node_id,
+            error_target: CoveredElementTarget {
+                ref_id: Some(entry.ref_id.clone()),
+                role: Some(entry.role.clone()),
+                name: Some(entry.name.clone()),
+                backend_node_id: Some(entry.backend_node_id),
+            },
+        }
+    }
+
+    fn from_backend_node(backend_node_id: i64) -> Self {
+        Self {
+            backend_node_id,
+            error_target: CoveredElementTarget {
+                backend_node_id: Some(backend_node_id),
+                ..CoveredElementTarget::default()
+            },
+        }
+    }
+}
+
 impl Input {
     #[must_use]
     pub fn new(observer: Arc<Observer>, pages: Arc<PageManager>, page_id: PageId) -> Self {
@@ -63,8 +97,12 @@ impl Input {
         opts: ClickOptions,
     ) -> Result<Option<Point>, CoreError> {
         let resolved = self.observer.resolve_ref(ref_id).await?;
-        self.click_node(&resolved.session, resolved.backend_node_id, opts)
-            .await
+        self.click_node(
+            &resolved.session,
+            InputTarget::from_ref_entry(&resolved.entry),
+            opts,
+        )
+        .await
     }
 
     pub async fn click_backend_node(
@@ -74,7 +112,14 @@ impl Input {
     ) -> Result<Option<Point>, CoreError> {
         self.with_page_session_retry(|session| {
             let opts = opts.clone();
-            async move { self.click_node(&session, backend_node_id, opts).await }
+            async move {
+                self.click_node(
+                    &session,
+                    InputTarget::from_backend_node(backend_node_id),
+                    opts,
+                )
+                .await
+            }
         })
         .await
     }
@@ -117,12 +162,13 @@ impl Input {
     async fn click_node(
         &self,
         session: &ProtocolSession,
-        backend_node_id: i64,
+        target: InputTarget,
         opts: ClickOptions,
     ) -> Result<Option<Point>, CoreError> {
-        scroll_into_view(session, backend_node_id).await;
-        match get_element_center(session, backend_node_id).await {
+        scroll_into_view(session, target.backend_node_id).await;
+        match get_element_center(session, target.backend_node_id).await {
             Ok(point) => {
+                self.check_click_point(session, &target, point).await?;
                 dispatch_click(
                     session,
                     point.x,
@@ -135,7 +181,7 @@ impl Input {
                 Ok(Some(point))
             }
             Err(_err) => {
-                js_click(session, backend_node_id).await?;
+                js_click(session, target.backend_node_id).await?;
                 Ok(None)
             }
         }
@@ -143,13 +189,17 @@ impl Input {
 
     pub async fn hover(&self, ref_id: &Ref) -> Result<Point, CoreError> {
         let resolved = self.observer.resolve_ref(ref_id).await?;
-        self.hover_node(&resolved.session, resolved.backend_node_id)
-            .await
+        self.hover_node(
+            &resolved.session,
+            InputTarget::from_ref_entry(&resolved.entry),
+        )
+        .await
     }
 
     pub async fn hover_backend_node(&self, backend_node_id: i64) -> Result<Point, CoreError> {
         self.with_page_session_retry(|session| async move {
-            self.hover_node(&session, backend_node_id).await
+            self.hover_node(&session, InputTarget::from_backend_node(backend_node_id))
+                .await
         })
         .await
     }
@@ -157,10 +207,11 @@ impl Input {
     async fn hover_node(
         &self,
         session: &ProtocolSession,
-        backend_node_id: i64,
+        target: InputTarget,
     ) -> Result<Point, CoreError> {
-        scroll_into_view(session, backend_node_id).await;
-        let point = get_element_center(session, backend_node_id).await?;
+        scroll_into_view(session, target.backend_node_id).await;
+        let point = get_element_center(session, target.backend_node_id).await?;
+        self.check_click_point(session, &target, point).await?;
         dispatch_hover(session, point.x, point.y).await?;
         Ok(point)
     }
@@ -234,8 +285,12 @@ impl Input {
         value: &str,
     ) -> Result<Option<String>, CoreError> {
         let resolved = self.observer.resolve_ref(ref_id).await?;
-        self.select_backend_node_with_session(&resolved.session, resolved.backend_node_id, value)
-            .await
+        self.select_backend_node_with_session(
+            &resolved.session,
+            InputTarget::from_ref_entry(&resolved.entry),
+            value,
+        )
+        .await
     }
 
     pub async fn select_backend_node(
@@ -246,8 +301,12 @@ impl Input {
         self.with_page_session_retry(|session| {
             let value = value.to_string();
             async move {
-                self.select_backend_node_with_session(&session, backend_node_id, &value)
-                    .await
+                self.select_backend_node_with_session(
+                    &session,
+                    InputTarget::from_backend_node(backend_node_id),
+                    &value,
+                )
+                .await
             }
         })
         .await
@@ -256,12 +315,16 @@ impl Input {
     async fn select_backend_node_with_session(
         &self,
         session: &ProtocolSession,
-        backend_node_id: i64,
+        target: InputTarget,
         value: &str,
     ) -> Result<Option<String>, CoreError> {
+        scroll_into_view(session, target.backend_node_id).await;
+        if let Ok(point) = get_element_center(session, target.backend_node_id).await {
+            self.check_click_point(session, &target, point).await?;
+        }
         let selected = call_on_element(
             session,
-            backend_node_id,
+            target.backend_node_id,
             SELECT_OPTION_FN,
             Some(vec![json!(value)]),
         )
@@ -282,7 +345,7 @@ impl Input {
             let _ = self
                 .click_node(
                     &resolved.session,
-                    resolved.backend_node_id,
+                    InputTarget::from_ref_entry(&resolved.entry),
                     ClickOptions::default(),
                 )
                 .await?;
@@ -303,7 +366,7 @@ impl Input {
             let _ = self
                 .click_node(
                     &resolved.session,
-                    resolved.backend_node_id,
+                    InputTarget::from_ref_entry(&resolved.entry),
                     ClickOptions::default(),
                 )
                 .await?;
@@ -408,6 +471,21 @@ impl Input {
         Ok(self.pages.get_session(self.page_id.clone()).await?.session)
     }
 
+    async fn check_click_point(
+        &self,
+        session: &ProtocolSession,
+        target: &InputTarget,
+        point: Point,
+    ) -> Result<(), CoreError> {
+        match click_blocker_at_point(session, target.backend_node_id, point).await {
+            Ok(Some(blocker)) => Err(CoreError::ElementCovered {
+                target: target.error_target.clone(),
+                blocker,
+            }),
+            Ok(None) | Err(_) => Ok(()),
+        }
+    }
+
     async fn with_page_session_retry<F, Fut, T>(&self, action: F) -> Result<T, CoreError>
     where
         F: Fn(ProtocolSession) -> Fut,
@@ -451,3 +529,294 @@ const SELECT_OPTION_FN: &str = "function(val){\
   }\
   return null;\
 }";
+
+#[cfg(test)]
+mod tests {
+    use super::{ClickOptions, Input};
+    use crate::{
+        BrowserSession, BrowserSessionHooks, CoreError, Ref,
+        connection::CdpConnection,
+        snapshot::{AxNode, AxValue},
+    };
+    use browseros_cdp::{CdpError, CdpEvent};
+    use futures_util::future::BoxFuture;
+    use serde_json::{Value, json};
+    use std::sync::{Arc, Mutex};
+    use tokio::sync::broadcast;
+
+    #[derive(Clone, Copy)]
+    enum HitTestResponse {
+        Blocked(&'static str),
+        Clear,
+        Error,
+    }
+
+    struct HarnessState {
+        hit_test: HitTestResponse,
+        mouse_events: usize,
+        select_calls: usize,
+    }
+
+    struct HarnessConnection {
+        state: Mutex<HarnessState>,
+    }
+
+    impl HarnessConnection {
+        fn mouse_events(&self) -> usize {
+            match self.state.lock() {
+                Ok(state) => state.mouse_events,
+                Err(_err) => 0,
+            }
+        }
+
+        fn select_calls(&self) -> usize {
+            match self.state.lock() {
+                Ok(state) => state.select_calls,
+                Err(_err) => 0,
+            }
+        }
+    }
+
+    impl CdpConnection for HarnessConnection {
+        fn send<'a>(
+            &'a self,
+            method: &'a str,
+            params: Value,
+            _session: Option<&'a crate::SessionId>,
+        ) -> BoxFuture<'a, Result<Value, CdpError>> {
+            Box::pin(async move {
+                match method {
+                    "Browser.getTabs" => Ok(json!({ "tabs": [tab_value()] })),
+                    "Browser.getTabInfo" => Ok(json!({ "tab": tab_value() })),
+                    "Target.attachToTarget" => Ok(json!({ "sessionId": "session-1" })),
+                    "Page.enable"
+                    | "DOM.enable"
+                    | "Runtime.enable"
+                    | "Accessibility.enable"
+                    | "Runtime.runIfWaitingForDebugger"
+                    | "Target.setAutoAttach"
+                    | "Runtime.releaseObject"
+                    | "DOM.scrollIntoViewIfNeeded" => Ok(json!({})),
+                    "Page.getFrameTree" => Ok(json!({
+                        "frameTree": {
+                            "frame": {
+                                "id": "main",
+                                "loaderId": "loader-1",
+                                "url": "https://example.com/"
+                            }
+                        }
+                    })),
+                    "Accessibility.getFullAXTree" => Ok(json!({ "nodes": ax_tree() })),
+                    "Runtime.evaluate" => Ok(json!({ "result": { "value": [] } })),
+                    "DOM.resolveNode" => Ok(json!({ "object": { "objectId": "target-object" } })),
+                    "DOM.getContentQuads" => Ok(json!({
+                        "quads": [[0.0, 0.0, 100.0, 0.0, 100.0, 50.0, 0.0, 50.0]]
+                    })),
+                    "Runtime.callFunctionOn" => self.call_function(params),
+                    "Input.dispatchMouseEvent" => {
+                        if let Ok(mut state) = self.state.lock() {
+                            state.mouse_events += 1;
+                        }
+                        Ok(json!({}))
+                    }
+                    _ => Ok(json!({})),
+                }
+            })
+        }
+
+        fn send_raw_json<'a>(
+            &'a self,
+            _method: &'a str,
+            _params_json: &'a str,
+            _session: Option<&'a crate::SessionId>,
+        ) -> BoxFuture<'a, Result<String, CdpError>> {
+            Box::pin(async { Ok("{}".to_string()) })
+        }
+
+        fn events(&self) -> broadcast::Receiver<CdpEvent> {
+            let (_tx, rx) = broadcast::channel(1);
+            rx
+        }
+
+        fn is_connected(&self) -> bool {
+            true
+        }
+
+        fn connection_epoch(&self) -> u64 {
+            1
+        }
+    }
+
+    impl HarnessConnection {
+        fn call_function(&self, params: Value) -> Result<Value, CdpError> {
+            let function = params
+                .get("functionDeclaration")
+                .and_then(Value::as_str)
+                .unwrap_or_default();
+            if function.contains("elementFromPoint") {
+                let response = match self.state.lock() {
+                    Ok(state) => state.hit_test,
+                    Err(_err) => HitTestResponse::Error,
+                };
+                return match response {
+                    HitTestResponse::Blocked(blocker) => {
+                        Ok(json!({ "result": { "value": blocker } }))
+                    }
+                    HitTestResponse::Clear => Ok(json!({ "result": { "value": null } })),
+                    HitTestResponse::Error => Err(CdpError::Protocol {
+                        code: -32000,
+                        message: "execution context unavailable".to_string(),
+                    }),
+                };
+            }
+            if function.contains("return this.checked") {
+                return Ok(json!({ "result": { "value": false } }));
+            }
+            if function.contains("this.options") {
+                if let Ok(mut state) = self.state.lock() {
+                    state.select_calls += 1;
+                }
+                return Ok(json!({ "result": { "value": "Choice" } }));
+            }
+            Ok(json!({ "result": { "value": null } }))
+        }
+    }
+
+    async fn input_harness(
+        hit_test: HitTestResponse,
+    ) -> Result<(Arc<HarnessConnection>, Input, Ref), CoreError> {
+        let connection = Arc::new(HarnessConnection {
+            state: Mutex::new(HarnessState {
+                hit_test,
+                mouse_events: 0,
+                select_calls: 0,
+            }),
+        });
+        let session = BrowserSession::new(connection.clone(), BrowserSessionHooks::default());
+        let pages = session.pages.list().await?;
+        let page_id = match pages.first() {
+            Some(page) => page.page_id.clone(),
+            None => return Err(CoreError::Message("missing test page".to_string())),
+        };
+        let observer = session.observe(page_id.clone()).await;
+        let _snapshot = observer.snapshot().await?;
+        let input = session.input(page_id).await;
+        Ok((connection, input, Ref("e1".to_string())))
+    }
+
+    fn tab_value() -> Value {
+        json!({
+            "tabId": 101,
+            "targetId": "target-1",
+            "url": "https://example.com/",
+            "title": "Test",
+            "isActive": true,
+            "isLoading": false,
+            "loadProgress": 1,
+            "isPinned": false,
+            "isHidden": false,
+            "windowId": 1
+        })
+    }
+
+    fn ax_tree() -> Vec<AxNode> {
+        vec![
+            AxNode {
+                node_id: "root".to_string(),
+                role: Some(AxValue::role("RootWebArea")),
+                child_ids: Some(vec!["button".to_string()]),
+                ..AxNode::default()
+            },
+            AxNode {
+                node_id: "button".to_string(),
+                role: Some(AxValue::role("button")),
+                name: Some(AxValue::string("Submit")),
+                backend_dom_node_id: Some(10),
+                ..AxNode::default()
+            },
+        ]
+    }
+
+    #[tokio::test]
+    async fn click_reports_covered_ref_and_skips_dispatch() -> Result<(), CoreError> {
+        let (connection, input, ref_id) =
+            input_harness(HitTestResponse::Blocked("div#consent-banner")).await?;
+
+        let result = input.click(&ref_id, ClickOptions::default()).await;
+
+        let err = match result {
+            Err(err) => err,
+            Ok(other) => {
+                return Err(CoreError::Message(format!(
+                    "expected ElementCovered, got {other:?}"
+                )));
+            }
+        };
+        let message = err.to_string();
+        match err {
+            CoreError::ElementCovered { target, blocker } => {
+                assert_eq!(target.ref_id, Some(Ref("e1".to_string())));
+                assert_eq!(target.role.as_deref(), Some("button"));
+                assert_eq!(target.name.as_deref(), Some("Submit"));
+                assert_eq!(blocker, "div#consent-banner");
+            }
+            other => {
+                return Err(CoreError::Message(format!(
+                    "expected ElementCovered, got {other:?}"
+                )));
+            }
+        }
+        assert_eq!(connection.mouse_events(), 0);
+        assert_eq!(
+            message,
+            "Element e1 (button \"Submit\") is covered by <div#consent-banner> at its click point; the click would hit that element instead. Dismiss or interact with the covering element first (often a dialog, banner, or sticky header)."
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn click_proceeds_when_hit_test_fails() -> Result<(), CoreError> {
+        let (connection, input, ref_id) = input_harness(HitTestResponse::Error).await?;
+
+        let point = input.click(&ref_id, ClickOptions::default()).await?;
+
+        assert_eq!(point.map(|point| (point.x, point.y)), Some((50.0, 25.0)));
+        assert_eq!(connection.mouse_events(), 3);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn hover_reports_covered_ref_before_mouse_move() -> Result<(), CoreError> {
+        let (connection, input, ref_id) =
+            input_harness(HitTestResponse::Blocked("div.toast")).await?;
+
+        let result = input.hover(&ref_id).await;
+
+        assert!(matches!(result, Err(CoreError::ElementCovered { .. })));
+        assert_eq!(connection.mouse_events(), 0);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn select_option_reports_covered_ref_before_selection() -> Result<(), CoreError> {
+        let (connection, input, ref_id) =
+            input_harness(HitTestResponse::Blocked("dialog#privacy")).await?;
+
+        let result = input.select_option(&ref_id, "Choice").await;
+
+        assert!(matches!(result, Err(CoreError::ElementCovered { .. })));
+        assert_eq!(connection.select_calls(), 0);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn select_option_proceeds_when_point_is_clear() -> Result<(), CoreError> {
+        let (connection, input, ref_id) = input_harness(HitTestResponse::Clear).await?;
+
+        let selected = input.select_option(&ref_id, "Choice").await?;
+
+        assert_eq!(selected.as_deref(), Some("Choice"));
+        assert_eq!(connection.select_calls(), 1);
+        Ok(())
+    }
+}

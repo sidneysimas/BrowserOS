@@ -226,11 +226,14 @@ async fn replay_tabs_tracks_only_live_agent_sessions() -> anyhow::Result<()> {
     assert_eq!(rows[0]["title"], "Live Tab");
     assert!(rows[0]["groupColor"].is_null());
 
-    session
-        .set_tab_group_ref(Some("group-live".to_string()))
-        .await;
-    session
-        .set_tab_group_color(Some(TabGroupColor::Purple))
+    app.state
+        .sessions
+        .ownership()
+        .set_tab_group(
+            session.agent().ownership_key(),
+            Some("group-live".to_string()),
+            Some(TabGroupColor::Purple),
+        )
         .await;
     let (status, body) = request_json(&app.router, "GET", "/replay/tabs", None).await?;
     assert_eq!(status, StatusCode::OK);

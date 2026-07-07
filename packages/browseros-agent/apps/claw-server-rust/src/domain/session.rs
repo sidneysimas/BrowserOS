@@ -92,12 +92,9 @@ fn fnv1a(input: &str) -> u32 {
 pub struct Session {
     id: SessionId,
     agent: AgentRef,
-    owned_pages: RwLock<BTreeSet<PageId>>,
     first_captures: RwLock<BTreeSet<PageId>>,
     active_dispatches: Mutex<BTreeMap<DispatchId, CancellationToken>>,
     cancel: CancellationToken,
-    tab_group_ref: Mutex<Option<String>>,
-    tab_group_color: Mutex<Option<TabGroupColor>>,
     replay_handle: Mutex<Option<String>>,
     last_activity: Mutex<Instant>,
 }
@@ -108,12 +105,9 @@ impl Session {
         Arc::new(Self {
             id,
             agent,
-            owned_pages: RwLock::new(BTreeSet::new()),
             first_captures: RwLock::new(BTreeSet::new()),
             active_dispatches: Mutex::new(BTreeMap::new()),
             cancel: CancellationToken::new(),
-            tab_group_ref: Mutex::new(None),
-            tab_group_color: Mutex::new(None),
             replay_handle: Mutex::new(None),
             last_activity: Mutex::new(now),
         })
@@ -137,23 +131,6 @@ impl Session {
         now.saturating_duration_since(*self.last_activity.lock().await)
     }
 
-    pub async fn add_owned_page(&self, page_id: PageId) {
-        self.owned_pages.write().await.insert(page_id);
-    }
-
-    pub async fn remove_owned_page(&self, page_id: &PageId) {
-        self.owned_pages.write().await.remove(page_id);
-        self.first_captures.write().await.remove(page_id);
-    }
-
-    pub async fn owns_page(&self, page_id: &PageId) -> bool {
-        self.owned_pages.read().await.contains(page_id)
-    }
-
-    pub async fn owned_pages(&self) -> Vec<PageId> {
-        self.owned_pages.read().await.iter().cloned().collect()
-    }
-
     pub async fn has_first_capture(&self, page_id: &PageId) -> bool {
         self.first_captures.read().await.contains(page_id)
     }
@@ -162,20 +139,8 @@ impl Session {
         self.first_captures.write().await.insert(page_id);
     }
 
-    pub async fn set_tab_group_ref(&self, value: Option<String>) {
-        *self.tab_group_ref.lock().await = value;
-    }
-
-    pub async fn tab_group_ref(&self) -> Option<String> {
-        self.tab_group_ref.lock().await.clone()
-    }
-
-    pub async fn set_tab_group_color(&self, value: Option<TabGroupColor>) {
-        *self.tab_group_color.lock().await = value;
-    }
-
-    pub async fn tab_group_color(&self) -> Option<TabGroupColor> {
-        *self.tab_group_color.lock().await
+    pub async fn forget_first_capture(&self, page_id: &PageId) {
+        self.first_captures.write().await.remove(page_id);
     }
 
     pub async fn set_replay_handle(&self, value: Option<String>) {

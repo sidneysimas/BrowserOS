@@ -8,7 +8,7 @@ use crate::{
 };
 use base64::Engine;
 use browseros_core::{
-    PageId,
+    BrowserSession, PageId,
     screenshot::{ScreenshotCaptureOptions, ScreenshotFormat},
 };
 use browseros_mcp::{
@@ -19,7 +19,7 @@ use browseros_mcp::{
 use futures_util::future::BoxFuture;
 use rmcp::model::ContentBlock;
 use serde_json::{Value, json};
-use std::sync::Arc;
+use std::{collections::BTreeSet, sync::Arc};
 use tokio_util::sync::CancellationToken;
 use tracing::{Instrument, info_span, warn};
 
@@ -101,8 +101,8 @@ impl ClawMcpHooks {
         timing: McpToolTiming,
     ) -> McpHookResult<()> {
         let session = self.session(&call.session_id).await?;
-        apply_post_execution_hooks(&session, &call, result).await;
-        TabsResultFilter::apply(&session, &call, result).await;
+        apply_post_execution_hooks(&self.state, &session, &call, result).await;
+        TabsResultFilter::apply(&self.state, &session, &call, result).await;
         let audit = AuditWriter::record(&self.state, &session, &call, result, timing).await;
         if let Some(record) = audit {
             ScreenshotPersister::persist(
@@ -116,7 +116,14 @@ impl ClawMcpHooks {
             .await;
         }
         TabActivityTracker::record(&self.state, &session, &call, result).await;
-        TabGroupOrchestrator::record(&session, &call, result, call.output_files.clone()).await;
+        TabGroupOrchestrator::record(
+            &self.state,
+            &session,
+            &call,
+            result,
+            call.output_files.clone(),
+        )
+        .await;
         session
             .unregister_dispatch(&DispatchId::from(call.dispatch_id))
             .await;
@@ -232,15 +239,39 @@ async fn page_ownership_guard(
 ) -> Option<ToolResult> {
     let page_id = extract_page_id(call.hooks.accepts_page_arg, &call.raw_args)?;
     let page_id = PageId(page_id);
-    match state.sessions.owner_of_page(&page_id).await {
-        Some(owner) if owner != *session.id() => Some(ToolResult::error(format!(
-            "page {} is not owned by this agent; call `tabs` with action=\"new\" to open a fresh page and use the returned page id.",
-            page_id.0
-        ))),
-        Some(_) => None,
-        None => {
-            session.add_owned_page(page_id).await;
-            None
+    let ownership = state.sessions.ownership();
+    let agent_key = session.agent().ownership_key();
+    if let Some(owner) = state.sessions.owner_of_page(&page_id).await {
+        if page_missing_after_refresh(call.browser_session.as_ref(), &page_id).await {
+            ownership.remove_page(&page_id).await;
+        } else if owner != agent_key {
+            return Some(ToolResult::error(format!(
+                "page {} is not owned by this agent; call `tabs` with action=\"new\" to open a fresh page and use the returned page id.",
+                page_id.0
+            )));
+        } else {
+            return None;
+        }
+    }
+    ownership.claim_page(agent_key, page_id).await;
+    None
+}
+
+async fn page_missing_after_refresh(
+    browser: Option<&Arc<BrowserSession>>,
+    page_id: &PageId,
+) -> bool {
+    let Some(browser) = browser else {
+        return false;
+    };
+    if browser.pages.get_info(page_id.clone()).await.is_some() {
+        return false;
+    }
+    match browser.pages.list().await {
+        Ok(pages) => !pages.iter().any(|page| page.page_id == *page_id),
+        Err(err) => {
+            warn!(error = %err, page_id = page_id.0, "page ownership stale-prune refresh failed");
+            false
         }
     }
 }
@@ -450,6 +481,7 @@ struct TabGroupOrchestrator;
 
 impl TabGroupOrchestrator {
     async fn record(
+        state: &AppState,
         session: &Arc<Session>,
         call: &McpToolCall,
         result: &ToolResult,
@@ -468,9 +500,14 @@ impl TabGroupOrchestrator {
             warn!("tab_groups tool missing from catalog");
             return;
         };
-        let group_id = session.tab_group_ref().await;
+        let ownership = state.sessions.ownership();
+        let agent_key = session.agent().ownership_key();
+        let group_id = ownership.tab_group_ref(&agent_key).await;
         let created_new_group = group_id.is_none();
-        let color = color_for_slug(session.agent().slug());
+        let color = ownership
+            .tab_group_color(&agent_key)
+            .await
+            .unwrap_or_else(|| color_for_slug(session.agent().slug()));
         let args = if let Some(group_id) = group_id {
             json!({ "action": "create", "groupId": group_id, "pages": [page_id] })
         } else {
@@ -496,8 +533,9 @@ impl TabGroupOrchestrator {
                     .and_then(Value::as_str)
                     .map(str::to_string)
                 {
-                    session.set_tab_group_ref(Some(group_id.clone())).await;
-                    session.set_tab_group_color(Some(color)).await;
+                    ownership
+                        .set_tab_group(agent_key, Some(group_id.clone()), Some(color))
+                        .await;
                     if created_new_group {
                         match execute_tool(
                             &tab_groups,
@@ -538,17 +576,35 @@ impl TabGroupOrchestrator {
 struct TabsResultFilter;
 
 impl TabsResultFilter {
-    async fn apply(session: &Arc<Session>, call: &McpToolCall, result: &mut ToolResult) {
+    async fn apply(
+        state: &AppState,
+        session: &Arc<Session>,
+        call: &McpToolCall,
+        result: &mut ToolResult,
+    ) {
         if result.is_error || !call.hooks.filter_tabs_list {
             return;
         }
-        let owned = session.owned_pages().await;
         let Some(Value::Object(structured)) = result.structured_content.as_ref() else {
             return;
         };
         let Some(pages) = structured.get("pages").and_then(Value::as_array) else {
             return;
         };
+        let live_page_ids = pages
+            .iter()
+            .filter_map(|page| {
+                page.get("page")
+                    .and_then(Value::as_u64)
+                    .and_then(|value| u32::try_from(value).ok())
+                    .map(PageId)
+            })
+            .collect::<BTreeSet<_>>();
+        let ownership = state.sessions.ownership();
+        ownership.prune_missing_pages(&live_page_ids).await;
+        let owned = ownership
+            .owned_pages(&session.agent().ownership_key())
+            .await;
         let surviving = pages
             .iter()
             .filter(|page| {
@@ -600,6 +656,7 @@ fn first_text(result: &ToolResult) -> String {
 }
 
 async fn apply_post_execution_hooks(
+    state: &AppState,
     session: &Arc<Session>,
     call: &McpToolCall,
     result: &ToolResult,
@@ -610,15 +667,254 @@ async fn apply_post_execution_hooks(
     if call.hooks.capture_new_page
         && let Some(page_id) = result_page_id(result)
     {
-        session.add_owned_page(PageId(page_id)).await;
+        state
+            .sessions
+            .ownership()
+            .claim_page(session.agent().ownership_key(), PageId(page_id))
+            .await;
     }
     if call.hooks.close_page
         && let Some(page_id) = extract_page_id(call.hooks.accepts_page_arg, &call.raw_args)
     {
-        session.remove_owned_page(&PageId(page_id)).await;
+        let page_id = PageId(page_id);
+        state.sessions.ownership().remove_page(&page_id).await;
+        session.forget_first_capture(&page_id).await;
     }
 }
 
 fn hook_error(error: impl std::fmt::Display) -> McpHookError {
     McpHookError::new(error.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        config::Config,
+        domain::{AgentId, AgentRef},
+    };
+    use browseros_mcp::ToolCallHooks;
+    use std::{collections::HashSet, path::PathBuf, time::Duration};
+    use tempfile::TempDir;
+    use tokio::sync::Mutex;
+
+    struct TestState {
+        state: AppState,
+        _dir: TempDir,
+    }
+
+    async fn test_state() -> anyhow::Result<TestState> {
+        let dir = tempfile::tempdir()?;
+        let root = dir.path().join("browserclaw");
+        let config = Arc::new(Config {
+            server_port: 9200,
+            cdp_port: 49337,
+            proxy_port: None,
+            resources_dir: dir.path().join("resources"),
+            browserclaw_dir: root.clone(),
+            claw_dir: root,
+            session_idle: Duration::from_secs(300),
+            session_sweep_interval: Duration::from_secs(60),
+            screencast_screenshot_fallback: true,
+            dev_mode: false,
+            auth_token: None,
+        });
+        let state = AppState::new_with_home(config, None, dir.path().join("home")).await?;
+        Ok(TestState { state, _dir: dir })
+    }
+
+    fn test_session(session_id: &str, agent_id: &str, slug: &str) -> Arc<Session> {
+        Session::new(
+            SessionId::new(session_id),
+            AgentRef::Ephemeral {
+                agent_id: AgentId::new(agent_id),
+                slug: slug.to_string(),
+                label: slug.to_string(),
+            },
+            tokio::time::Instant::now(),
+        )
+    }
+
+    fn output_files() -> OutputFileAccess {
+        Arc::new(Mutex::new(HashSet::<PathBuf>::new()))
+    }
+
+    fn page_call(page_id: u32) -> McpToolCall {
+        McpToolCall {
+            session_id: "session".to_string(),
+            dispatch_id: "dispatch".to_string(),
+            tool_name: "navigate",
+            raw_args: json!({ "page": page_id }),
+            hooks: ToolCallHooks {
+                accepts_page_arg: true,
+                ..ToolCallHooks::default()
+            },
+            browser_session: None,
+            cancel: CancellationToken::new(),
+            output_files: output_files(),
+        }
+    }
+
+    fn tabs_list_call() -> McpToolCall {
+        McpToolCall {
+            session_id: "session".to_string(),
+            dispatch_id: "dispatch".to_string(),
+            tool_name: "tabs",
+            raw_args: json!({ "action": "list" }),
+            hooks: ToolCallHooks {
+                filter_tabs_list: true,
+                ..ToolCallHooks::default()
+            },
+            browser_session: None,
+            cancel: CancellationToken::new(),
+            output_files: output_files(),
+        }
+    }
+
+    fn tabs_close_call(page_id: u32) -> McpToolCall {
+        McpToolCall {
+            session_id: "session".to_string(),
+            dispatch_id: "dispatch".to_string(),
+            tool_name: "tabs",
+            raw_args: json!({ "action": "close", "page": page_id }),
+            hooks: ToolCallHooks {
+                accepts_page_arg: true,
+                close_page: true,
+                ..ToolCallHooks::default()
+            },
+            browser_session: None,
+            cancel: CancellationToken::new(),
+            output_files: output_files(),
+        }
+    }
+
+    #[tokio::test]
+    async fn tabs_filter_reuses_same_slug_pages_after_reconnect() -> anyhow::Result<()> {
+        let app = test_state().await?;
+        let session1 = test_session("s1", "codex-a", "codex");
+        let session2 = test_session("s2", "codex-b", "codex");
+        let key1 = session1.agent().ownership_key();
+        let key2 = session2.agent().ownership_key();
+        app.state
+            .sessions
+            .ownership()
+            .claim_page(key1.clone(), PageId(1))
+            .await;
+        app.state
+            .sessions
+            .ownership()
+            .claim_page(key1.clone(), PageId(2))
+            .await;
+        app.state
+            .sessions
+            .ownership()
+            .set_tab_group(
+                key1,
+                Some("group-1".to_string()),
+                Some(crate::domain::TabGroupColor::Purple),
+            )
+            .await;
+
+        let mut result = ToolResult::text(
+            "[1] https://one\n[2] https://two\n[3] https://three",
+            Some(json!({
+                "pages": [
+                    { "page": 1, "url": "https://one", "title": "One" },
+                    { "page": 2, "url": "https://two", "title": "Two" },
+                    { "page": 3, "url": "https://three", "title": "Three" }
+                ]
+            })),
+        );
+        TabsResultFilter::apply(&app.state, &session2, &tabs_list_call(), &mut result).await;
+
+        assert_eq!(key2.as_str(), "codex");
+        assert_eq!(
+            result
+                .structured_content
+                .as_ref()
+                .and_then(|value| value.get("pages").and_then(Value::as_array).map(Vec::len)),
+            Some(2)
+        );
+        assert_eq!(
+            app.state
+                .sessions
+                .ownership()
+                .tab_group_ref(&key2)
+                .await
+                .as_deref(),
+            Some("group-1")
+        );
+        assert_eq!(
+            first_text(&result),
+            "[1] https://one (One)\n[2] https://two (Two)"
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn page_ownership_guard_denies_different_agent_key_with_existing_message()
+    -> anyhow::Result<()> {
+        let app = test_state().await?;
+        let cowork = test_session("cowork-session", "cowork-a", "cowork");
+        let codex = test_session("codex-session", "codex-a", "codex");
+        app.state
+            .sessions
+            .ownership()
+            .claim_page(cowork.agent().ownership_key(), PageId(7))
+            .await;
+
+        let result = page_ownership_guard(&app.state, &codex, &page_call(7))
+            .await
+            .ok_or_else(|| anyhow::anyhow!("expected ownership denial"))?;
+
+        assert!(result.is_error);
+        assert_eq!(
+            first_text(&result),
+            "page 7 is not owned by this agent; call `tabs` with action=\"new\" to open a fresh page and use the returned page id."
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn page_ownership_guard_allows_same_slug_concurrent_sessions() -> anyhow::Result<()> {
+        let app = test_state().await?;
+        let first = test_session("s1", "codex-a", "codex");
+        let second = test_session("s2", "codex-b", "codex");
+
+        assert!(
+            page_ownership_guard(&app.state, &first, &page_call(4))
+                .await
+                .is_none()
+        );
+        assert!(
+            page_ownership_guard(&app.state, &second, &page_call(4))
+                .await
+                .is_none()
+        );
+        assert_eq!(
+            app.state.sessions.owner_of_page(&PageId(4)).await,
+            Some(second.agent().ownership_key())
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn close_page_hook_removes_agent_owned_page() -> anyhow::Result<()> {
+        let app = test_state().await?;
+        let session = test_session("s1", "codex-a", "codex");
+        let page_id = PageId(9);
+        app.state
+            .sessions
+            .ownership()
+            .claim_page(session.agent().ownership_key(), page_id.clone())
+            .await;
+        session.mark_first_capture_done(page_id.clone()).await;
+        let result = ToolResult::text("closed page 9", Some(json!({ "page": 9 })));
+
+        apply_post_execution_hooks(&app.state, &session, &tabs_close_call(9), &result).await;
+
+        assert_eq!(app.state.sessions.owner_of_page(&page_id).await, None);
+        assert!(!session.has_first_capture(&page_id).await);
+        Ok(())
+    }
 }

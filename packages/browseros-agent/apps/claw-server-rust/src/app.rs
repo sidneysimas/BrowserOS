@@ -65,7 +65,7 @@ impl AppState {
             config.session_idle,
             config.session_sweep_interval,
         );
-        let browser = BrowserService::new(config.cdp_port);
+        let browser = BrowserService::new(config.cdp_port, sessions.ownership());
         let tab_activity = Arc::new(TabActivityService::default());
         Ok(Self {
             config,

@@ -1,5 +1,5 @@
 use crate::{
-    domain::{AgentRef, ClientInfo, Session, SessionId},
+    domain::{AgentKey, AgentPageOwnership, AgentRef, ClientInfo, Session, SessionId},
     error::AppResult,
     services::{audit::AuditService, replay::ReplayService},
 };
@@ -14,6 +14,7 @@ use ulid::Ulid;
 
 pub struct SessionRegistry {
     sessions: RwLock<HashMap<SessionId, Arc<Session>>>,
+    ownership: Arc<AgentPageOwnership>,
     audit: Arc<AuditService>,
     replay: Arc<ReplayService>,
     idle_after: Duration,
@@ -30,11 +31,17 @@ impl SessionRegistry {
     ) -> Arc<Self> {
         Arc::new(Self {
             sessions: RwLock::new(HashMap::new()),
+            ownership: Arc::new(AgentPageOwnership::new()),
             audit,
             replay,
             idle_after,
             sweep_interval,
         })
+    }
+
+    #[must_use]
+    pub fn ownership(&self) -> Arc<AgentPageOwnership> {
+        self.ownership.clone()
     }
 
     pub async fn mint(
@@ -112,14 +119,8 @@ impl SessionRegistry {
         cancelled
     }
 
-    pub async fn owner_of_page(&self, page_id: &browseros_core::PageId) -> Option<SessionId> {
-        let sessions: Vec<Arc<Session>> = self.sessions.read().await.values().cloned().collect();
-        for session in sessions {
-            if session.owns_page(page_id).await {
-                return Some(session.id().clone());
-            }
-        }
-        None
+    pub async fn owner_of_page(&self, page_id: &browseros_core::PageId) -> Option<AgentKey> {
+        self.ownership.owner_of_page(page_id).await
     }
 
     pub async fn remove(
@@ -278,6 +279,88 @@ mod tests {
             )
             .await?;
         assert!(registry.lookup(session.id()).await.is_some());
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn ownership_survives_reconnect_and_preserves_tab_group() -> anyhow::Result<()> {
+        let dir = tempdir()?;
+        let audit = Arc::new(AuditService::open(dir.path().join("audit.sqlite")).await?);
+        let replay = Arc::new(ReplayService::new(
+            dir.path().join("replays"),
+            50,
+            Duration::from_secs(30),
+        ));
+        let registry = SessionRegistry::new(
+            audit,
+            replay,
+            Duration::from_secs(60),
+            Duration::from_secs(1),
+        );
+        let session1 = Session::new(
+            SessionId::new("s1"),
+            AgentRef::Ephemeral {
+                agent_id: crate::domain::AgentId::new("codex-a"),
+                slug: "codex".to_string(),
+                label: "Codex".to_string(),
+            },
+            Instant::now(),
+        );
+        let key1 = session1.agent().ownership_key();
+        registry.insert_for_testing(session1.clone()).await;
+        registry
+            .ownership()
+            .claim_page(key1.clone(), browseros_core::PageId(1))
+            .await;
+        registry
+            .ownership()
+            .claim_page(key1.clone(), browseros_core::PageId(2))
+            .await;
+        registry
+            .ownership()
+            .set_tab_group(
+                key1.clone(),
+                Some("group-1".to_string()),
+                Some(crate::domain::TabGroupColor::Purple),
+            )
+            .await;
+
+        assert!(
+            registry
+                .remove(session1.id(), "closed", Some("reconnect"))
+                .await?
+        );
+
+        let session2 = Session::new(
+            SessionId::new("s2"),
+            AgentRef::Ephemeral {
+                agent_id: crate::domain::AgentId::new("codex-b"),
+                slug: "codex".to_string(),
+                label: "Codex".to_string(),
+            },
+            Instant::now(),
+        );
+        let key2 = session2.agent().ownership_key();
+        registry.insert_for_testing(session2).await;
+
+        assert_eq!(key1, key2);
+        assert_eq!(
+            registry
+                .ownership()
+                .owned_pages(&key2)
+                .await
+                .into_iter()
+                .collect::<Vec<_>>(),
+            vec![browseros_core::PageId(1), browseros_core::PageId(2)]
+        );
+        assert_eq!(
+            registry.ownership().tab_group_ref(&key2).await.as_deref(),
+            Some("group-1")
+        );
+        assert_eq!(
+            registry.ownership().tab_group_color(&key2).await,
+            Some(crate::domain::TabGroupColor::Purple)
+        );
         Ok(())
     }
 }

@@ -1,5 +1,8 @@
 use crate::{
-    domain::ids::{AgentId, ProfileId, SessionId},
+    domain::{
+        ids::{AgentId, ProfileId, SessionId},
+        ownership::AgentKey,
+    },
     services::agents::StoredAgentProfile,
 };
 use serde::{Deserialize, Serialize};
@@ -90,6 +93,16 @@ impl AgentRef {
         match self {
             Self::Profile { profile_id, .. } => Some(profile_id),
             Self::Ephemeral { .. } => None,
+        }
+    }
+
+    #[must_use]
+    pub fn ownership_key(&self) -> AgentKey {
+        match self {
+            Self::Profile { profile_id, .. } => AgentKey::new(profile_id.as_str().to_string()),
+            // Ephemeral identity is clientInfo-derived, so two unrelated harnesses that send the
+            // same name intentionally share a pool; configured profiles avoid that collision.
+            Self::Ephemeral { slug, .. } => AgentKey::new(slug.clone()),
         }
     }
 }
@@ -222,5 +235,35 @@ mod tests {
             AgentRef::Ephemeral { slug, .. } => assert_eq!(slug, "other"),
             AgentRef::Profile { .. } => panic!("expected ephemeral"),
         }
+    }
+
+    #[test]
+    fn ownership_key_prefers_profile_id_over_slug() {
+        let resolved = AgentRef::resolve(
+            &SessionId::new("s1"),
+            &ClientInfo {
+                name: "finance ops".to_string(),
+                version: "1".to_string(),
+                title: None,
+            },
+            &[profile()],
+        );
+
+        assert_eq!(resolved.ownership_key().as_str(), "p1");
+    }
+
+    #[test]
+    fn ownership_key_uses_slug_for_ephemeral_agent() {
+        let resolved = AgentRef::resolve(
+            &SessionId::new("s1"),
+            &ClientInfo {
+                name: "Other".to_string(),
+                version: "1".to_string(),
+                title: None,
+            },
+            &[profile()],
+        );
+
+        assert_eq!(resolved.ownership_key().as_str(), "other");
     }
 }

@@ -39,12 +39,13 @@ pub async fn list_replay_tabs(
         let Some(session) = live_by_agent_id.get(record.agent_id.as_str()) else {
             continue;
         };
+        let agent_key = session.agent().ownership_key();
         tabs.push(ReplayTab {
             session_id: session.id().as_str().to_string(),
             tab_page_id: record.page_id,
             url: record.url,
             title: record.title,
-            group_color: session.tab_group_color().await,
+            group_color: sessions.ownership().tab_group_color(&agent_key).await,
         });
     }
 

@@ -1,5 +1,9 @@
+use crate::domain::AgentPageOwnership;
 use browseros_cdp::{CdpClient, ConnectOptions, ReconnectPolicy};
-use browseros_core::Browser;
+use browseros_core::{
+    BrowserSession, BrowserSessionHooks,
+    pages::{OnPageDetached, PageManagerHooks},
+};
 use serde::Serialize;
 use std::{sync::Arc, time::Duration};
 use tokio::{
@@ -19,6 +23,7 @@ pub struct BrowserConnectionState {
 
 pub struct BrowserService {
     cdp_port: u16,
+    ownership: Arc<AgentPageOwnership>,
     state_tx: watch::Sender<BrowserConnectionState>,
     session: Arc<RwLock<Option<Arc<browseros_core::BrowserSession>>>>,
     cancel: CancellationToken,
@@ -26,7 +31,7 @@ pub struct BrowserService {
 
 impl BrowserService {
     #[must_use]
-    pub fn new(cdp_port: u16) -> Arc<Self> {
+    pub fn new(cdp_port: u16, ownership: Arc<AgentPageOwnership>) -> Arc<Self> {
         let (state_tx, _) = watch::channel(BrowserConnectionState {
             connected: false,
             epoch: 0,
@@ -34,6 +39,7 @@ impl BrowserService {
         });
         Arc::new(Self {
             cdp_port,
+            ownership,
             state_tx,
             session: Arc::new(RwLock::new(None)),
             cancel: CancellationToken::new(),
@@ -60,8 +66,7 @@ impl BrowserService {
     pub async fn connect_once_for_testing(&self) -> Result<(), browseros_cdp::CdpError> {
         let opts = self.connect_options();
         let client = CdpClient::connect(opts).await?;
-        let browser = Browser::new(Arc::new(client.clone()));
-        *self.session.write().await = Some(browser.session());
+        *self.session.write().await = Some(self.browser_session(client.clone()));
         self.state_tx.send_replace(BrowserConnectionState {
             connected: true,
             epoch: client.epoch(),
@@ -86,6 +91,25 @@ impl BrowserService {
         }
     }
 
+    fn browser_session(&self, client: CdpClient) -> Arc<BrowserSession> {
+        let ownership = self.ownership.clone();
+        let on_page_detached: OnPageDetached = Arc::new(move |page_id| {
+            let ownership = ownership.clone();
+            tokio::spawn(async move {
+                ownership.remove_page(&page_id).await;
+            });
+        });
+        BrowserSession::new(
+            Arc::new(client),
+            BrowserSessionHooks {
+                page_manager: PageManagerHooks {
+                    on_page_detached: Some(on_page_detached),
+                    ..PageManagerHooks::default()
+                },
+            },
+        )
+    }
+
     async fn reattach_loop(self: Arc<Self>) {
         let mut backoff = Duration::from_secs(1);
         loop {
@@ -95,8 +119,7 @@ impl BrowserService {
             let opts = self.connect_options();
             match CdpClient::connect(opts).await {
                 Ok(client) => {
-                    let browser = Browser::new(Arc::new(client.clone()));
-                    let session = browser.session();
+                    let session = self.browser_session(client.clone());
                     *self.session.write().await = Some(session);
                     let epoch = client.epoch();
                     self.state_tx.send_replace(BrowserConnectionState {

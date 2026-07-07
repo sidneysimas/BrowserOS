@@ -4,18 +4,23 @@
  * SPDX-License-Identifier: AGPL-3.0-or-later
  *
  * v2 single-endpoint install layer. Writes one canonical
- * `"browseros"` entry into the harness's MCP config file via
+ * `"BrowserClaw"` entry into the harness's MCP config file via
  * `agent-mcp-manager`, pointing at the slugless canonical URL
- * (`http://127.0.0.1:9200/mcp`). One row per supported
- * harness, idempotent connect / disconnect, list reads through the
- * library's manifest so the UI reflects the current install state
- * within the polling interval.
+ * (`http://127.0.0.1:9200/mcp`). One row per supported harness,
+ * idempotent connect / disconnect, list reads through the library's
+ * manifest so the UI reflects the current install state within the
+ * polling interval.
  */
 
 import type { AgentId } from 'agent-mcp-manager'
-import { ForeignEntryError } from 'agent-mcp-manager'
+import {
+  AgentNotInstalledError,
+  ForeignEntryError,
+  resolveAgentMcpConfigPath,
+} from 'agent-mcp-manager'
 import { logger } from '../lib/logger'
 import { getMcpManager } from '../lib/mcp-manager'
+import { tildifyHomePath } from '../lib/tildify'
 import { type Harness, harnessEnum } from '../routes/agents/schemas'
 import { BROWSEROS_MCP_SERVER_NAME, publicMcpUrl } from '../shared/mcp-url'
 import { HARNESS_TO_AGENT_ID } from './harness-install'
@@ -24,17 +29,12 @@ import { specFor } from './spec-for'
 
 export interface ConnectionState {
   harness: Harness
-  /**
-   * True when the harness has a "browseros" entry pointing at the
-   * canonical URL. For BrowserOS-internal harnesses (Hermes,
-   * OpenClaw) `installed` is always true (no third-party config to
-   * write).
-   */
+  /** True when the harness has a "BrowserClaw" entry pointing at the canonical URL. */
   installed: boolean
   /** Filled when `installed` is true and a real config file was touched. */
   configPath?: string
-  /** Stable agent-mcp-manager id; null for BrowserOS-internal harnesses. */
-  agentId: AgentId | null
+  /** Stable agent-mcp-manager id for the harness. */
+  agentId: AgentId
   /** Single-line human-readable message; surfaced to the UI verbatim. */
   message: string
 }
@@ -45,18 +45,10 @@ export async function connectBrowserosToHarness(
   harness: Harness,
 ): Promise<ConnectionState> {
   const agentId = HARNESS_TO_AGENT_ID[harness]
-  if (agentId === null) {
-    return {
-      harness,
-      installed: true,
-      agentId: null,
-      message: `${harness} runs inside BrowserOS; no harness config to write.`,
-    }
-  }
   const mgr = getMcpManager()
   const url = publicMcpUrl()
   try {
-    const link = await relinkManagedServer({
+    await relinkManagedServer({
       mgr,
       serverName: BROWSEROS_MCP_SERVER_NAME,
       agent: agentId,
@@ -71,16 +63,20 @@ export async function connectBrowserosToHarness(
       // rebuild, or a prior version of the manifest).
       allowOverwrite: true,
     })
+    const rawConfigPath = await resolveAgentMcpConfigPath(
+      agentId,
+      'system',
+    ).catch(() => undefined)
     logger.info('connected browseros to harness', {
       harness,
       agent: agentId,
-      configPath: link.configPath,
+      configPath: rawConfigPath,
     })
     return {
       harness,
       installed: true,
       agentId,
-      configPath: link.configPath,
+      configPath: tildifyHomePath(rawConfigPath),
       message: `BrowserOS registered as an MCP server in ${harness}.`,
     }
   } catch (err) {
@@ -92,51 +88,28 @@ export async function disconnectBrowserosFromHarness(
   harness: Harness,
 ): Promise<ConnectionState> {
   const agentId = HARNESS_TO_AGENT_ID[harness]
-  if (agentId === null) {
-    return {
-      harness,
-      installed: false,
-      agentId: null,
-      message: `${harness} runs inside BrowserOS; nothing to disconnect.`,
-    }
-  }
   const mgr = getMcpManager()
   try {
-    const unlink = await mgr.unlink({
+    // `disconnect` is the 0.0.4 atomic primitive: unlinks the agent
+    // AND drops the manifest entry only if no other agents remain
+    // linked. Replaces the pre-0.0.4 three-step unlink + listLinks +
+    // conditional remove dance which had a race window where a
+    // concurrent disconnect could orphan another agent's link record.
+    const summary = await mgr.disconnect({
       serverName: BROWSEROS_MCP_SERVER_NAME,
       agent: agentId,
+      removeIfLast: true,
     })
-    // Only drop the shared manifest entry when NO other agents are
-    // still linked to it. The BrowserClaw server is a single manifest
-    // record that agent-mcp-manager fans out across every agent's
-    // config file; unconditionally calling remove() here would wipe
-    // the shared entry and orphan every other agent's on-disk link.
-    // listLinks after unlink is safe: the library queues writes, so
-    // this read sees the post-unlink state.
-    try {
-      const remainingLinks = await mgr.listLinks({
-        serverNames: [BROWSEROS_MCP_SERVER_NAME],
-      })
-      if (remainingLinks.length === 0) {
-        await mgr.remove({
-          serverName: BROWSEROS_MCP_SERVER_NAME,
-          unlinkFirst: false,
-        })
-      }
-    } catch {
-      // ServerNotFoundError, etc. Safe to ignore: the link is gone,
-      // which is the user-visible state we care about.
-    }
     logger.info('disconnected browseros from harness', {
       harness,
       agent: agentId,
-      configPath: unlink.configPath,
+      unlinked: summary.unlinked,
+      removedManifest: summary.removedManifest,
     })
     return {
       harness,
       installed: false,
       agentId,
-      configPath: unlink.configPath,
       message: `BrowserOS unregistered from ${harness}.`,
     }
   } catch (err) {
@@ -145,56 +118,81 @@ export async function disconnectBrowserosFromHarness(
 }
 
 /**
- * One row per supported harness. The library's `listLinks` is the
- * authoritative source: a harness is `installed` iff a link record
- * for `(serverName: "browseros", agent: <id>)` exists. Internal
- * harnesses always report `installed: true` so the UI badge counts
- * them correctly.
+ * One row per supported harness that is ACTUALLY installed on this
+ * machine. Filters out any harness the library reports as
+ * uninstalled via `isInstalled` (the same signal `link` gates on
+ * throwing `AgentNotInstalledError`), so the UI never offers a
+ * Connect button that would throw. Harnesses that already carry a
+ * BrowserClaw link record are kept regardless of the current
+ * `isInstalled` reading: if a link exists we already have a working
+ * install, and the file will be there on disk to prove it.
+ *
+ * `listLinks` remains the authoritative source for `installed=true`;
+ * a harness is `installed` iff a link record for
+ * `(serverName: "BrowserClaw", agent: <id>)` exists.
  */
 export async function listBrowserosConnections(): Promise<ConnectionState[]> {
   const mgr = getMcpManager()
+  const agentIds = ALL_HARNESSES.map((h) => HARNESS_TO_AGENT_ID[h])
+
   let links: Awaited<ReturnType<typeof mgr.listLinks>> = []
   try {
     links = await mgr.listLinks({
       serverNames: [BROWSEROS_MCP_SERVER_NAME],
     })
   } catch (err) {
-    logger.warn('listBrowserosConnections failed', {
+    logger.warn('listBrowserosConnections listLinks failed', {
       error: err instanceof Error ? err.message : String(err),
     })
-    // Fall through: every external harness reports not-installed.
+    // Fall through: every harness reports not-installed. The
+    // installed-agents gate below still runs so the list survives
+    // a listLinks fault.
   }
+
+  let installedMap: Awaited<ReturnType<typeof mgr.isInstalled>> = {}
+  try {
+    installedMap = await mgr.isInstalled({ agents: agentIds })
+  } catch (err) {
+    logger.warn('listBrowserosConnections isInstalled failed', {
+      error: err instanceof Error ? err.message : String(err),
+    })
+    // If the install probe throws, default every agent to installed
+    // so we do not silently hide the whole list on a transient
+    // filesystem hiccup.
+    for (const id of agentIds) installedMap[id] = true
+  }
+
   const byAgent = new Map<AgentId, (typeof links)[number]>()
   for (const link of links) {
-    if (!link.broken) byAgent.set(link.agent, link)
+    byAgent.set(link.agent, link)
   }
-  return ALL_HARNESSES.map((harness): ConnectionState => {
+
+  const rows: ConnectionState[] = []
+  for (const harness of ALL_HARNESSES) {
     const agentId = HARNESS_TO_AGENT_ID[harness]
-    if (agentId === null) {
-      return {
-        harness,
-        installed: true,
-        agentId: null,
-        message: `${harness} runs inside BrowserOS.`,
-      }
-    }
     const link = byAgent.get(agentId)
+    const isInstalledOnDisk = installedMap[agentId] ?? false
+    // Already-linked wins: an existing link means we have a working
+    // install even if isInstalled dropped for a transient reason.
+    if (!link && !isInstalledOnDisk) continue
     if (link) {
-      return {
+      rows.push({
         harness,
         installed: true,
         agentId,
-        configPath: link.configPath,
+        configPath: tildifyHomePath(link.configPath),
         message: `Configured in ${harness}.`,
-      }
+      })
+    } else {
+      rows.push({
+        harness,
+        installed: false,
+        agentId,
+        message: `${harness} is not configured.`,
+      })
     }
-    return {
-      harness,
-      installed: false,
-      agentId,
-      message: `${harness} is not configured.`,
-    }
-  })
+  }
+  return rows
 }
 
 function failure(
@@ -203,6 +201,20 @@ function failure(
   err: unknown,
   op: 'connect' | 'disconnect',
 ): ConnectionState {
+  if (err instanceof AgentNotInstalledError) {
+    logger.info('browseros connect target not installed', {
+      harness,
+      agent: err.agent,
+      configPath: err.configPath,
+      parentDir: err.parentDir,
+    })
+    return {
+      harness,
+      installed: false,
+      agentId,
+      message: `${harness} is not installed on this machine. Launch it once so the MCP config directory exists, then try again.`,
+    }
+  }
   if (err instanceof ForeignEntryError) {
     logger.warn('browseros harness entry exists but was not written by us', {
       harness,
@@ -214,7 +226,7 @@ function failure(
       harness,
       installed: false,
       agentId,
-      configPath: err.configPath,
+      configPath: tildifyHomePath(err.configPath),
       message: `${harness} already has an entry under "${err.serverName}" that we did not write. Remove it from the config and try again.`,
     }
   }

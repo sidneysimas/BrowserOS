@@ -1,7 +1,9 @@
 import { afterEach, describe, expect, it } from 'bun:test'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { MemoryRouter } from 'react-router'
+import type { BrowserOSOnboardingBridge } from './browseros-onboarding-bridge'
 import {
+  finishBrowserOSOnboarding,
   importPhaseFor,
   OnboardingV2,
   openBrowserOsMcpPage,
@@ -40,6 +42,33 @@ function installAssignableWindow(search: string) {
     },
   })
   return () => assignedUrl
+}
+
+function stubBridge(isMock: boolean) {
+  let completeCount = 0
+  const bridge: BrowserOSOnboardingBridge = {
+    isMock,
+    complete() {
+      completeCount += 1
+    },
+    pageReady() {
+      throw new Error('unexpected pageReady call')
+    },
+    refreshSources() {
+      throw new Error('unexpected refreshSources call')
+    },
+    registerReceiver() {
+      throw new Error('unexpected registerReceiver call')
+    },
+    startImport() {
+      throw new Error('unexpected startImport call')
+    },
+  }
+
+  return {
+    bridge,
+    getCompleteCount: () => completeCount,
+  }
 }
 
 afterEach(() => {
@@ -88,6 +117,26 @@ describe('OnboardingV2 shell', () => {
 
     openBrowserOsMcpPage()
 
+    expect(getAssignedUrl()).toBe('chrome://newtab/#/mcp')
+  })
+
+  it('does not navigate after completing through the real Chromium bridge', () => {
+    const getAssignedUrl = installAssignableWindow('')
+    const { bridge, getCompleteCount } = stubBridge(false)
+
+    finishBrowserOSOnboarding(bridge)
+
+    expect(getCompleteCount()).toBe(1)
+    expect(getAssignedUrl()).toBeNull()
+  })
+
+  it('keeps navigating after completion in mock standalone onboarding', () => {
+    const getAssignedUrl = installAssignableWindow('')
+    const { bridge, getCompleteCount } = stubBridge(true)
+
+    finishBrowserOSOnboarding(bridge)
+
+    expect(getCompleteCount()).toBe(1)
     expect(getAssignedUrl()).toBe('chrome://newtab/#/mcp')
   })
 

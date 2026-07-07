@@ -12,7 +12,10 @@ import {
   type BrowserOSImportStatus,
   type BrowserOSOnboardingState,
 } from './browseros-onboarding-api'
-import { createBrowserOSOnboardingBridge } from './browseros-onboarding-bridge'
+import {
+  type BrowserOSOnboardingBridge,
+  createBrowserOSOnboardingBridge,
+} from './browseros-onboarding-bridge'
 import { OnboardingShell } from './components/OnboardingShell'
 import {
   importSourceSelectionChangeFor,
@@ -49,6 +52,12 @@ export function importPhaseFor(status: BrowserOSImportStatus): ImportPhase {
 /** Leaves standalone onboarding for BrowserClaw's MCP connection page. */
 export function openBrowserOsMcpPage() {
   window.location.assign(BROWSEROS_MCP_PAGE_URL)
+}
+
+/** Completes onboarding and leaves standalone mock onboarding when needed. */
+export function finishBrowserOSOnboarding(bridge: BrowserOSOnboardingBridge) {
+  bridge.complete()
+  if (bridge.isMock) openBrowserOsMcpPage()
 }
 
 /** Runs the standalone three-step BrowserClaw onboarding flow. */
@@ -113,8 +122,7 @@ export function OnboardingV2() {
   }
 
   function finishOnboarding() {
-    bridge.complete()
-    openBrowserOsMcpPage()
+    finishBrowserOSOnboarding(bridge)
   }
 
   return (

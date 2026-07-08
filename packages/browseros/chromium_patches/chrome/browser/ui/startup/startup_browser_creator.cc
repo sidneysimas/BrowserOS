@@ -1,5 +1,5 @@
 diff --git a/chrome/browser/ui/startup/startup_browser_creator.cc b/chrome/browser/ui/startup/startup_browser_creator.cc
-index 597bd5bfdcbbf..846af4e4c9df8 100644
+index 597bd5bfdcbbf..48e33de23903d 100644
 --- a/chrome/browser/ui/startup/startup_browser_creator.cc
 +++ b/chrome/browser/ui/startup/startup_browser_creator.cc
 @@ -41,6 +41,7 @@
@@ -60,13 +60,17 @@ index 597bd5bfdcbbf..846af4e4c9df8 100644
  #if BUILDFLAG(IS_CHROMEOS)
  // Returns the app id of the kiosk app associated with the current user session.
  // Returns nullopt for non-kiosk user sessions and for ARCVM kiosk sessions,
-@@ -712,6 +756,18 @@ void StartupBrowserCreator::LaunchBrowser(
+@@ -712,6 +756,22 @@ void StartupBrowserCreator::LaunchBrowser(
        command_line, {profile, StartupProfileMode::kBrowserWindow});
  
    if (!IsSilentLaunchEnabled(command_line, profile)) {
 +#if !BUILDFLAG(IS_CHROMEOS)
 +    if (!command_line.HasSwitch(switches::kNoFirstRun) &&
 +        browseros::onboarding::ShouldShow(profile)) {
++      // BrowserOS onboarding is now the first-run experience. Stand down
++      // Chromium's DICE first-run so it does not re-intercept the browser
++      // launch when onboarding completes (which would deadlock with no window).
++      browseros::onboarding::NeutralizeUpstreamFirstRun();
 +      ProfilePicker::Show(ProfilePicker::Params::ForFirstRun(
 +          profile->GetPath(),
 +          base::BindOnce(&OpenNewWindowForBrowserOSOnboarding, command_line,

@@ -1,9 +1,9 @@
 diff --git a/chrome/browser/browseros/onboarding/browseros_onboarding_prefs.h b/chrome/browser/browseros/onboarding/browseros_onboarding_prefs.h
 new file mode 100644
-index 0000000000000..fc0d5b3bfc641
+index 0000000000000..5504cfea7ebd9
 --- /dev/null
 +++ b/chrome/browser/browseros/onboarding/browseros_onboarding_prefs.h
-@@ -0,0 +1,20 @@
+@@ -0,0 +1,28 @@
 +// Copyright 2026 The Chromium Authors
 +// Use of this source code is governed by a BSD-style license that can be
 +// found in the LICENSE file.
@@ -20,6 +20,14 @@ index 0000000000000..fc0d5b3bfc641
 +
 +// Marks the BrowserOS onboarding popup complete for `profile`.
 +void MarkCompleted(Profile* profile);
++
++// Tells Chromium's built-in (DICE) first-run that first-run is already finished,
++// so `FirstRunService::ShouldOpenFirstRun()` stops re-intercepting the browser
++// launch after BrowserOS onboarding completes. Without this, completing
++// onboarding deadlocks: every attempt to open a browser window re-enters the
++// upstream first-run flow (which BrowserOS bypassed on entry) and no window is
++// ever shown. Call once when BrowserOS takes over first-run.
++void NeutralizeUpstreamFirstRun();
 +
 +}  // namespace browseros::onboarding
 +

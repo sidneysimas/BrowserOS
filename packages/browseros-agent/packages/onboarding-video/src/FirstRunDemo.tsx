@@ -10,6 +10,7 @@
  */
 
 import { AbsoluteFill, Sequence } from 'remotion'
+import { fonts } from './fonts'
 import { palette } from './palette'
 import { SceneActivity } from './scenes/SceneActivity'
 import { SceneCockpit } from './scenes/SceneCockpit'
@@ -21,7 +22,9 @@ import { SCENES } from './timing'
 
 export function FirstRunDemo() {
   return (
-    <AbsoluteFill style={{ background: palette.bgCanvas }}>
+    <AbsoluteFill
+      style={{ background: palette.bgCanvas, fontFamily: fonts.sans }}
+    >
       <Sequence
         from={SCENES.cockpit.from}
         durationInFrames={SCENES.cockpit.duration}

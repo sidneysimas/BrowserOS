@@ -16,6 +16,7 @@
 import { AbsoluteFill, Easing, interpolate, useCurrentFrame } from 'remotion'
 import { CockpitFrame } from '../components/CockpitFrame'
 import { SceneLabel } from '../components/SceneLabel'
+import { fonts } from '../fonts'
 import { palette } from '../palette'
 
 const EASE_OUT = Easing.bezier(0.16, 1, 0.3, 1)
@@ -105,7 +106,7 @@ function EndpointCard({
     >
       <div
         style={{
-          fontFamily: '"JetBrains Mono", monospace',
+          fontFamily: fonts.mono,
           fontSize: 10,
           letterSpacing: 1.6,
           color: palette.ink3,
@@ -115,7 +116,7 @@ function EndpointCard({
       </div>
       <div
         style={{
-          fontFamily: '"JetBrains Mono", monospace',
+          fontFamily: fonts.mono,
           fontSize: 13,
           color: palette.ink,
         }}

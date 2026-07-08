@@ -7,6 +7,7 @@
  * "where your work happens" and "you are here" style annotations.
  */
 
+import { fonts } from '../fonts'
 import { palette } from '../palette'
 
 interface SceneLabelProps {
@@ -28,7 +29,7 @@ export function SceneLabel({
         display: 'flex',
         alignItems: 'center',
         gap: 10,
-        fontFamily: '"JetBrains Mono", monospace',
+        fontFamily: fonts.mono,
         fontSize: 12,
         letterSpacing: 2,
         color: palette.ink3,

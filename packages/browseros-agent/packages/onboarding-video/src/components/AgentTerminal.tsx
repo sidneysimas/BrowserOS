@@ -10,6 +10,7 @@
  */
 
 import type { CSSProperties } from 'react'
+import { fonts } from '../fonts'
 import { palette } from '../palette'
 
 interface AgentTerminalProps {
@@ -64,7 +65,7 @@ export function AgentTerminal({
             marginLeft: 12,
             color: '#8a92a8',
             fontSize: 11,
-            fontFamily: '"JetBrains Mono", monospace',
+            fontFamily: fonts.mono,
           }}
         >
           agent, claude-code
@@ -74,7 +75,7 @@ export function AgentTerminal({
         style={{
           flex: 1,
           padding: '22px 24px',
-          fontFamily: '"JetBrains Mono", monospace',
+          fontFamily: fonts.mono,
           fontSize: 14,
           lineHeight: 1.55,
           color: '#e0e4ee',

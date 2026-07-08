@@ -11,6 +11,7 @@
 
 import { AbsoluteFill, Easing, interpolate, useCurrentFrame } from 'remotion'
 import { CockpitFrame } from '../components/CockpitFrame'
+import { fonts } from '../fonts'
 import { palette } from '../palette'
 
 const SETTLE_END = 45
@@ -75,7 +76,7 @@ export function SceneActivity() {
         You watch.{' '}
         <span
           style={{
-            fontFamily: '"Newsreader", serif',
+            fontFamily: fonts.serif,
             fontStyle: 'italic',
             color: palette.accent,
             fontWeight: 500,

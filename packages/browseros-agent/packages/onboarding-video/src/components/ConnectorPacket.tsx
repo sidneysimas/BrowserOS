@@ -11,6 +11,7 @@
  * `opacity` handles the outer fade-out at the end of the scene.
  */
 
+import { fonts } from '../fonts'
 import { palette } from '../palette'
 
 interface ConnectorPacketProps {
@@ -93,7 +94,7 @@ export function ConnectorPacket({
         <text
           x={52}
           y={25}
-          fontFamily='"JetBrains Mono", monospace'
+          fontFamily={fonts.mono}
           fontSize={17}
           fontWeight={800}
           letterSpacing={3}

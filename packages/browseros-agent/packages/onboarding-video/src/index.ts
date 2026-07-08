@@ -5,5 +5,6 @@
  */
 
 export { FirstRunDemo } from './FirstRunDemo'
+export { fonts } from './fonts'
 export { palette } from './palette'
 export { FPS, SCENES, TOTAL_FRAMES } from './timing'

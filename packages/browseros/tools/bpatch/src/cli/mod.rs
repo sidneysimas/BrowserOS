@@ -1,5 +1,6 @@
 pub mod abort;
 pub mod alias;
+pub mod annotate;
 pub mod apply;
 mod checkout_guard;
 pub mod continue_cmd;
@@ -12,6 +13,7 @@ pub mod status;
 
 use std::collections::BTreeMap;
 use std::env;
+use std::ffi::OsString;
 use std::fs;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
@@ -54,6 +56,7 @@ EXAMPLES:
     bpatch status
     bpatch diff
     bpatch apply
+    bpatch annotate
 
   Extract checkout commits into the store:
     bpatch extract <rev1>..<rev2> --feature <name>
@@ -62,7 +65,7 @@ EXAMPLES:
     bpatch apply -> bpatch continue --materialize -> resolve markers -> bpatch continue -> bpatch extract --repin
 
 EXIT CODES:
-  0  Initialized, converged, applied, extracted, repinned, listed, added, aborted, or completed.
+  0  Initialized, converged, applied, annotated, extracted, repinned, listed, added, aborted, or completed.
   2  Conflicts are pending or conflict files remain unresolved.
   3  Drift/refusal or extract needs a feature decision.
   1  CLI, git, lock, config, or unexpected error.
@@ -118,6 +121,16 @@ pub enum Command {
 "#
     )]
     Apply(ApplyArgs),
+    /// Commit dirty bos_build output into feature/resource commits.
+    #[command(
+        long_about = "Commit a dirty bos_build-patched checkout into feature commits, one resource commit for store:false groups, and optionally one wip commit for leftovers. Exit 3 means unclaimed paths were left in the working tree.",
+        after_long_help = r#"EXAMPLES:
+  bpatch annotate
+  bpatch annotate --rest wip-frame-experiments
+  bpatch annotate --triage --json
+"#
+    )]
+    Annotate(AnnotateArgs),
     /// Extract commits into the store or repin the store base.
     #[command(
         long_about = "Extract <rev> or <rev1>..<rev2> into the store, or repin existing store patches to the checkout base. Use --feature <FEATURE> to route unmatched files, --commit to commit store repo changes, and --repin without a spec for base upgrades.",
@@ -189,6 +202,19 @@ pub struct ApplyArgs {
     pub checkout: Option<String>,
 }
 
+/// Annotate command flags.
+#[derive(Debug, Args)]
+pub struct AnnotateArgs {
+    /// Commit unclaimed leftovers into one `wip: <NAME>` commit.
+    #[arg(long)]
+    pub rest: Option<String>,
+    /// Emit a triage plan instead of committing; JSON mode never opens an editor.
+    #[arg(long)]
+    pub triage: bool,
+    /// Checkout alias or path.
+    pub checkout: Option<String>,
+}
+
 /// Extract command flags.
 #[derive(Debug, Args)]
 pub struct ExtractArgs {
@@ -227,11 +253,12 @@ pub enum FeatureCommand {
 "#
     )]
     List,
-    /// Add a feature path block.
+    /// Add paths to a feature block.
     #[command(
-        long_about = "Append a new feature block to .features.yaml. Provide a feature name and an exact path or directory prefix with --path.",
+        long_about = "Append paths to .features.yaml. Provide explicit paths, or use --from-dirty to claim currently unclaimed dirty paths. Use --store=false for resource groups that annotate commits but extract/apply ignore.",
         after_long_help = r#"EXAMPLE:
-  bpatch feature add wallet --path chrome/browser/browseros/wallet/ --description "Wallet UI"
+  bpatch feature add wallet chrome/browser/browseros/wallet/ --desc "feat: wallet"
+  bpatch feature add build-resources --store=false --from-dirty
 "#
     )]
     Add(FeatureAddArgs),
@@ -242,12 +269,23 @@ pub enum FeatureCommand {
 pub struct FeatureAddArgs {
     /// Feature name.
     pub name: String,
-    /// Path or prefix owned by the feature.
+    /// Path or prefixes owned by the feature.
+    pub paths: Vec<String>,
+    /// Path or prefix owned by the feature. Kept for older scripts.
     #[arg(long)]
-    pub path: String,
+    pub path: Vec<String>,
     /// Feature description.
-    #[arg(long)]
+    #[arg(long, alias = "desc")]
     pub description: Option<String>,
+    /// Claim currently unclaimed dirty checkout paths.
+    #[arg(long)]
+    pub from_dirty: bool,
+    /// Commit the store repo after updating .features.yaml.
+    #[arg(long)]
+    pub commit: bool,
+    /// Hidden normalized spelling for `feature add ... --store=false`.
+    #[arg(id = "feature_store", long = "feature-store", hide = true)]
+    pub feature_store: Option<bool>,
 }
 
 /// Continue command flags.
@@ -265,6 +303,7 @@ impl Command {
         match self {
             Self::Status(args) | Self::Diff(args) | Self::Abort(args) => args.checkout.as_deref(),
             Self::Apply(args) => args.checkout.as_deref(),
+            Self::Annotate(args) => args.checkout.as_deref(),
             Self::Continue(args) => args.checkout.as_deref(),
             Self::Extract(_) | Self::Feature(_) | Self::Alias(_) | Self::Init(_) => None,
         }
@@ -353,6 +392,31 @@ fn run_inner(cli: &Cli) -> Result<i32> {
             )?;
             Ok(report.exit_code())
         }
+        Command::Annotate(args) => {
+            let report = if args.triage {
+                if render::is_interactive(cli.json) {
+                    let mut progress = render::progress_sink(cli.json);
+                    annotate::triage_editor(&state_ctx, &mut progress)?
+                } else {
+                    annotate::triage(&state_ctx)?
+                }
+            } else {
+                let mut progress = render::progress_sink(cli.json);
+                annotate::run(
+                    &state_ctx,
+                    &crate::engine::annotate::AnnotateOptions {
+                        rest: args.rest.clone(),
+                    },
+                    &mut progress,
+                )?
+            };
+            write_output(
+                cli.json,
+                &annotate::render_json(&report)?,
+                &annotate::render_human(&report),
+            )?;
+            Ok(report.exit_code())
+        }
         Command::Extract(args) => run_extract(cli, args, &checkout, &store_dir),
         Command::Feature(args) => run_feature(cli, args, &state_ctx, &store_dir),
         Command::Alias(_) => unreachable!("alias dispatches before checkout/store discovery"),
@@ -383,6 +447,46 @@ fn run_inner(cli: &Cli) -> Result<i32> {
             Ok(report.exit_code())
         }
     }
+}
+
+/// Normalizes feature-add's `--store=false` before clap sees the global store flag.
+pub fn normalize_args(args: impl IntoIterator<Item = OsString>) -> Vec<OsString> {
+    let mut out = Vec::new();
+    let mut saw_feature = false;
+    let mut in_feature_add = false;
+    let mut iter = args.into_iter().peekable();
+    while let Some(arg) = iter.next() {
+        let text = arg.to_string_lossy();
+        if text == "feature" {
+            saw_feature = true;
+            out.push(arg);
+            continue;
+        }
+        if saw_feature && text == "add" {
+            in_feature_add = true;
+            out.push(arg);
+            continue;
+        }
+        if in_feature_add && (text == "--store=false" || text == "--store=true") {
+            out.push(OsString::from(text.replacen(
+                "--store",
+                "--feature-store",
+                1,
+            )));
+            continue;
+        }
+        if in_feature_add
+            && text == "--store"
+            && let Some(next) = iter.peek()
+            && matches!(next.to_string_lossy().as_ref(), "false" | "true")
+        {
+            out.push(OsString::from("--feature-store"));
+            out.push(iter.next().expect("peeked"));
+            continue;
+        }
+        out.push(arg);
+    }
+    out
 }
 
 /// Resolves `-C` or positional checkout selectors into the checkout used by all checkout verbs.
@@ -534,10 +638,16 @@ fn run_feature(
     let report = match &args.command {
         FeatureCommand::List => feature::list(state_ctx)?,
         FeatureCommand::Add(args) => feature::add(
+            state_ctx,
             store_dir,
             &args.name,
-            &args.path,
-            args.description.as_deref(),
+            feature::FeatureAddOptions {
+                paths: args.paths.iter().chain(args.path.iter()).cloned().collect(),
+                description: args.description.clone(),
+                store: args.feature_store.unwrap_or(true),
+                from_dirty: args.from_dirty,
+                commit: args.commit,
+            },
         )?,
     };
     write_output(
@@ -561,7 +671,7 @@ fn extract_policy(args: &ExtractArgs) -> FeatureDecisionPolicy {
 fn needs_checkout_store_guard(command: &Command) -> bool {
     matches!(
         command,
-        Command::Status(_) | Command::Diff(_) | Command::Apply(_)
+        Command::Status(_) | Command::Diff(_) | Command::Apply(_) | Command::Annotate(_)
     )
 }
 

@@ -6,8 +6,8 @@ use anyhow::{Context, Result, anyhow, bail};
 
 use crate::engine::progress::ProgressEvent;
 use crate::engine::state::{
-    DriftFile, DriftSource, StateContext, format_apply_trailers, parse_apply_trailers,
-    unassigned_feature_name,
+    DriftFile, DriftSource, StateContext, format_annotate_trailers, format_apply_trailers,
+    parse_bpatch_authored_base, unassigned_feature_name,
 };
 use crate::git::{GitAdapter, TreeDiffEntry};
 use crate::process::Git;
@@ -95,12 +95,32 @@ pub struct AuthorCommitsInput<'a> {
     pub applied_tree: &'a str,
     /// Final tree that the authored commit chain must reach.
     pub target_tree: &'a str,
-    /// Store repository commit to write into trailers.
-    pub store_rev: &'a str,
+    /// Trailer block written to each authored commit.
+    pub trailers: CommitTrailerMode<'a>,
+    /// Subject source used when building feature commit messages.
+    pub subject_mode: SubjectMode,
     /// Parent commit for the first authored feature commit.
     pub parent_commit: &'a str,
     /// Files changed between `applied_tree` and `target_tree`.
     pub delta: &'a [TreeDiffEntry],
+}
+
+/// Trailer style for commit-tree authored bpatch commits.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum CommitTrailerMode<'a> {
+    /// Apply commits record the store revision and final target tree.
+    Apply { store_rev: &'a str },
+    /// Annotate commits record only the base plus an annotation marker.
+    Annotate,
+}
+
+/// Subject source for grouped feature commits.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum SubjectMode {
+    /// Use the stable `feat: <feature>` subject style.
+    FeatureName,
+    /// Use `.features.yaml` descriptions when present.
+    FeatureDescription,
 }
 
 /// Commit authored for one feature group.
@@ -154,12 +174,33 @@ pub fn apply(
     }
 
     let checkout = GitAdapter::new(&ctx.checkout);
-    let target_tree =
+    let store_target_tree =
         build_target_tree(&checkout, &ctx.store_dir, &store, &state.base.sha, progress)
             .context("building target tree from store patches")?;
+    let applied_tree = state
+        .applied
+        .as_ref()
+        .map(|applied| applied.tree.as_str())
+        .unwrap_or(&state.base.sha);
+    let store_delta = checkout
+        .diff_tree_name_status(applied_tree, &store_target_tree)?
+        .into_iter()
+        .filter(|entry| stores_entry(&store, entry))
+        .collect::<Vec<_>>();
+    let target_tree = build_tree_from_source_entries(
+        &checkout,
+        &state.head_tree,
+        &store_target_tree,
+        &store_delta,
+    )?;
 
     checkout.refresh_index()?;
-    if state.head_tree == target_tree && !checkout.diff_index_has_changes("HEAD")? {
+    let has_uncommitted_drift = state
+        .drift
+        .files()
+        .iter()
+        .any(|file| matches!(file.source, DriftSource::Uncommitted));
+    if state.head_tree == target_tree && !has_uncommitted_drift {
         return Ok(ApplyOutcome::Converged(ConvergedApply {
             store_rev: state.store.head_rev,
             store_short_rev: state.store.short_head_rev,
@@ -173,12 +214,7 @@ pub fn apply(
         }));
     }
 
-    let applied_tree = state
-        .applied
-        .as_ref()
-        .map(|applied| applied.tree.as_str())
-        .unwrap_or(&state.head_tree);
-    let delta = checkout.diff_tree_name_status(applied_tree, &target_tree)?;
+    let delta = checkout.diff_tree_name_status(&state.head_tree, &target_tree)?;
     let collisions = untracked_add_collisions(&checkout, &delta)?;
     if !collisions.is_empty() {
         return Ok(ApplyOutcome::Drift(DriftApply { files: collisions }));
@@ -189,9 +225,12 @@ pub fn apply(
             checkout: &ctx.checkout,
             store: &store,
             base: &state.base.sha,
-            applied_tree,
+            applied_tree: &state.head_tree,
             target_tree: &target_tree,
-            store_rev: &state.store.head_rev,
+            trailers: CommitTrailerMode::Apply {
+                store_rev: &state.store.head_rev,
+            },
+            subject_mode: SubjectMode::FeatureName,
             parent_commit: &state.head_rev,
             delta: &delta,
         },
@@ -203,10 +242,11 @@ pub fn apply(
         total: Some(delta.len()),
     });
     checkout
-        .materialize_tree_delta(applied_tree, &target_tree)
+        .materialize_tree_delta(&state.head_tree, &target_tree)
         .with_context(|| {
             format!(
-                "materializing target tree failed; recover with `git read-tree -m -u {applied_tree} {target_tree}`"
+                "materializing target tree failed; recover with `git read-tree -m -u {} {target_tree}`",
+                state.head_tree
             )
         })?;
     progress(ProgressEvent::End {
@@ -226,7 +266,11 @@ pub fn apply(
         base_display: state.base.display,
         previous_store_short_rev: state.applied.map(|applied| applied.short_store_rev),
         files_changed: delta.len(),
-        store_managed_files: store.patches().len(),
+        store_managed_files: store
+            .patches()
+            .keys()
+            .filter(|path| store.stores_path(path))
+            .count(),
         target_tree,
         commits: chain.commits,
     }))
@@ -251,6 +295,7 @@ pub fn author_feature_commits(
         input.base,
         input.parent_commit,
         input.delta,
+        input.subject_mode,
     )?;
     let git_dir = git_dir(git.process())?;
     let temp = tempfile::Builder::new()
@@ -278,7 +323,7 @@ pub fn author_feature_commits(
         indexed.run_with_stdin(&["update-index", "--index-info"], index_info.as_bytes())?;
         let next_tree = indexed.run_str(&["write-tree"])?;
         let tree_trailer = (index == last_index).then_some(input.target_tree);
-        let message = commit_message(&group.subject, input.store_rev, input.base, tree_trailer);
+        let message = commit_message(&group.subject, input.trailers, input.base, tree_trailer);
         let sha = git.process().run_with_stdin(
             &["commit-tree", &next_tree, "-p", &parent],
             message.as_bytes(),
@@ -423,16 +468,27 @@ fn build_target_tree(
 
     progress(ProgressEvent::Start {
         phase: "tree",
-        total: Some(store.patches().len()),
+        total: Some(
+            store
+                .patches()
+                .keys()
+                .filter(|path| store.stores_path(path))
+                .count(),
+        ),
     });
-    for (index, patch) in store.patches().values().enumerate() {
+    let patches = store
+        .patches()
+        .values()
+        .filter(|patch| store.stores_path(&patch.path))
+        .collect::<Vec<_>>();
+    for (index, patch) in patches.iter().enumerate() {
         let patch_path = store_dir.join(&patch.path);
         let patch_arg = path_arg(&patch_path)?;
         indexed.run(&["apply", "--cached", "--whitespace=nowarn", patch_arg])?;
         progress(ProgressEvent::Tick {
             phase: "tree",
             done: index + 1,
-            total: Some(store.patches().len()),
+            total: Some(patches.len()),
             item: Some(&patch.path),
         });
     }
@@ -441,12 +497,38 @@ fn build_target_tree(
     Ok(tree)
 }
 
+/// Builds a tree by copying selected entries from a source tree onto a base tree.
+pub fn build_tree_from_source_entries(
+    git: &GitAdapter,
+    base_tree: &str,
+    source_tree: &str,
+    entries: &[TreeDiffEntry],
+) -> Result<String> {
+    if entries.is_empty() {
+        return Ok(base_tree.to_string());
+    }
+    let git_dir = git_dir(git.process())?;
+    let temp = tempfile::Builder::new()
+        .prefix("bpatch-overlay-index-")
+        .tempfile_in(git_dir)?;
+    let index_path = temp.into_temp_path();
+    fs::remove_file(&index_path)?;
+    let indexed = git
+        .process()
+        .with_env("GIT_INDEX_FILE", index_path.as_os_str().to_os_string());
+    indexed.run(&["read-tree", base_tree])?;
+    let index_info = index_info_for_group(git, source_tree, entries)?;
+    indexed.run_with_stdin(&["update-index", "--index-info"], index_info.as_bytes())?;
+    indexed.run_str(&["write-tree"])
+}
+
 fn plan_commit_groups(
     git: &GitAdapter,
     store: &Store,
     base: &str,
     parent_commit: &str,
     delta: &[TreeDiffEntry],
+    subject_mode: SubjectMode,
 ) -> Result<Vec<CommitGroup>> {
     let mut grouped = BTreeMap::<String, Vec<TreeDiffEntry>>::new();
     for entry in delta {
@@ -465,7 +547,7 @@ fn plan_commit_groups(
     grouped
         .into_iter()
         .map(|(feature, files)| {
-            let subject_base = subject_base(&feature);
+            let subject_base = subject_base(store, &feature, subject_mode);
             let seq = existing.get(&subject_base).copied().unwrap_or(0) + 1;
             let subject = if seq == 1 {
                 subject_base.clone()
@@ -490,7 +572,7 @@ fn existing_subject_counts(
     let mut counts = BTreeMap::new();
     let range = format!("{base}..{parent_commit}");
     for commit in git.first_parent_commits(Some(&range), None)? {
-        if parse_apply_trailers(&git.commit_trailers(&commit)?)?.is_none() {
+        if parse_bpatch_authored_base(&git.commit_trailers(&commit)?)?.is_none() {
             continue;
         }
         let subject = git.commit_subject(&commit)?;
@@ -501,9 +583,18 @@ fn existing_subject_counts(
     Ok(counts)
 }
 
-fn subject_base(feature: &str) -> String {
+fn subject_base(store: &Store, feature: &str, subject_mode: SubjectMode) -> String {
     if feature == unassigned_feature_name() {
         "chore: unassigned store patches".to_string()
+    } else if subject_mode == SubjectMode::FeatureDescription {
+        store
+            .features()
+            .features
+            .get(feature)
+            .map(|feature| feature.description.trim())
+            .filter(|description| !description.is_empty())
+            .map(ToOwned::to_owned)
+            .unwrap_or_else(|| format!("feat: {feature}"))
     } else {
         format!("feat: {feature}")
     }
@@ -512,10 +603,7 @@ fn subject_base(feature: &str) -> String {
 fn apply_subject_base(subject: &str) -> Option<String> {
     let without_digits = subject.trim_end_matches(|ch: char| ch.is_ascii_digit());
     let base = without_digits.strip_suffix(" #").unwrap_or(subject);
-    if base.starts_with("feat: ") || base == "chore: unassigned store patches" {
-        return Some(base.to_string());
-    }
-    None
+    (!base.trim().is_empty()).then(|| base.to_string())
 }
 
 fn index_info_for_group(
@@ -577,12 +665,31 @@ fn append_index_info_line(
     Ok(())
 }
 
-fn commit_message(subject: &str, store_rev: &str, base: &str, tree: Option<&str>) -> String {
+fn commit_message(
+    subject: &str,
+    trailers: CommitTrailerMode<'_>,
+    base: &str,
+    tree: Option<&str>,
+) -> String {
     let mut message = String::new();
     message.push_str(subject);
     message.push_str("\n\n");
-    message.push_str(&format_apply_trailers(store_rev, base, tree));
+    match trailers {
+        CommitTrailerMode::Apply { store_rev } => {
+            message.push_str(&format_apply_trailers(store_rev, base, tree));
+        }
+        CommitTrailerMode::Annotate => {
+            message.push_str(&format_annotate_trailers(base));
+        }
+    }
     message
+}
+
+fn stores_entry(store: &Store, entry: &TreeDiffEntry) -> bool {
+    entry
+        .path
+        .to_str()
+        .is_none_or(|path| store.stores_path(path))
 }
 
 fn git_dir(git: &Git) -> Result<PathBuf> {

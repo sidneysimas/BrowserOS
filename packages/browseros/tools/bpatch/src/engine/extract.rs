@@ -185,7 +185,10 @@ pub fn extract(
     }
     progress(ProgressEvent::End { phase: "scan" });
 
-    let candidate_paths = candidates.into_iter().collect::<Vec<_>>();
+    let candidate_paths = candidates
+        .into_iter()
+        .filter(|path| store.stores_path(path))
+        .collect::<Vec<_>>();
     progress(ProgressEvent::Start {
         phase: "diff",
         total: Some(candidate_paths.len()),
@@ -323,7 +326,12 @@ pub fn repin(
     let old_metadata = store.metadata().clone();
     ensure_tree_exists(&git, &state.base.sha)?;
 
-    let paths = store.patches().keys().cloned().collect::<Vec<_>>();
+    let paths = store
+        .patches()
+        .keys()
+        .filter(|path| store.stores_path(path))
+        .cloned()
+        .collect::<Vec<_>>();
     progress(ProgressEvent::Start {
         phase: "repin",
         total: Some(paths.len()),

@@ -7,8 +7,8 @@ use anyhow::{Context, Result, anyhow, bail};
 use serde::{Deserialize, Serialize};
 
 use crate::engine::apply::{
-    AuthorCommitsInput, AuthoredCommit, author_feature_commits, finalize_head,
-    untracked_add_collisions,
+    AuthorCommitsInput, AuthoredCommit, CommitTrailerMode, SubjectMode, author_feature_commits,
+    finalize_head, untracked_add_collisions,
 };
 use crate::engine::progress::ProgressEvent;
 use crate::engine::state::{DriftFile, DriftSource, StateContext};
@@ -285,7 +285,10 @@ pub fn continue_session(
             base: &session.new_base,
             applied_tree: &new_base_tree,
             target_tree: &final_tree,
-            store_rev: &session.store_rev,
+            trailers: CommitTrailerMode::Apply {
+                store_rev: &session.store_rev,
+            },
+            subject_mode: SubjectMode::FeatureName,
             parent_commit: &session.parent_head,
             delta: &delta,
         },

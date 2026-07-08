@@ -12,6 +12,8 @@ pub const TRAILER_STORE_REV: &str = "Bpatch-Store-Rev";
 pub const TRAILER_BASE: &str = "Bpatch-Base";
 /// Trailer key carrying the cached applied tree.
 pub const TRAILER_TREE: &str = "Bpatch-Tree";
+/// Trailer key marking commits authored by `bpatch annotate`.
+pub const TRAILER_ANNOTATED: &str = "Bpatch-Annotated";
 
 const HISTORY_LIMIT: usize = 512;
 const UNASSIGNED_FEATURE: &str = "(unassigned)";
@@ -44,6 +46,13 @@ pub struct ApplyTrailers {
     pub base: String,
     /// Cached applied tree, when the commit still carries it.
     pub tree: Option<String>,
+}
+
+/// Parsed bpatch annotate trailers from a commit.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AnnotateTrailers {
+    /// Chromium base commit used while grouping dirty checkout changes.
+    pub base: String,
 }
 
 /// Resolved checkout state derived from history and the store repo.
@@ -205,17 +214,28 @@ struct TrailerCommit {
     subject: String,
 }
 
+struct BaseTrailerCommit {
+    base: String,
+}
+
 /// Resolves trailer state, store freshness, base display, and checkout drift.
 pub fn resolve(ctx: &StateContext) -> Result<ResolvedState> {
     let checkout = GitAdapter::new(&ctx.checkout);
     let store_repo = StoreRepo::new(&ctx.store_dir);
+    let store_model = Store::load(&ctx.store_dir)?;
     let head_rev = checkout.head_rev()?;
     let head_tree = checkout.tree_id("HEAD")?;
     let store_head = store_repo.head_rev()?;
     let latest = find_latest_apply_commit(&checkout)?;
+    let latest_base = if latest.is_some() {
+        None
+    } else {
+        find_latest_base_commit(&checkout)?
+    };
     let base_sha = latest
         .as_ref()
         .map(|entry| entry.trailers.base.clone())
+        .or_else(|| latest_base.as_ref().map(|entry| entry.base.clone()))
         .unwrap_or_else(|| head_rev.clone());
     let base = BaseState {
         short_sha: checkout.short_rev(&base_sha)?,
@@ -251,11 +271,11 @@ pub fn resolve(ctx: &StateContext) -> Result<ResolvedState> {
     let applied_tree = applied
         .as_ref()
         .map(|applied| applied.tree.as_str())
-        .unwrap_or(&head_tree);
+        .unwrap_or(&base.sha);
     let last_subject = applied
         .as_ref()
         .map(|applied| applied.last_subject.as_str());
-    let drift = detect_drift(&checkout, applied_tree, last_subject)?;
+    let drift = detect_drift(&checkout, &store_model, applied_tree, last_subject)?;
 
     Ok(ResolvedState {
         checkout: ctx.checkout.clone(),
@@ -295,6 +315,33 @@ pub fn parse_apply_trailers(trailers: &[Trailer]) -> Result<Option<ApplyTrailers
     }))
 }
 
+/// Parses annotate trailers from a git trailer list.
+pub fn parse_annotate_trailers(trailers: &[Trailer]) -> Result<Option<AnnotateTrailers>> {
+    let mut annotated = false;
+    let mut base = None;
+    for trailer in trailers {
+        match trailer.key.as_str() {
+            TRAILER_ANNOTATED => annotated = true,
+            TRAILER_BASE => base = Some(trailer.value.clone()),
+            _ => {}
+        }
+    }
+    if !annotated {
+        return Ok(None);
+    }
+    let base =
+        base.ok_or_else(|| anyhow!("{TRAILER_ANNOTATED} commit is missing {TRAILER_BASE}"))?;
+    Ok(Some(AnnotateTrailers { base }))
+}
+
+/// Returns the Chromium base from any bpatch-authored commit trailer block.
+pub fn parse_bpatch_authored_base(trailers: &[Trailer]) -> Result<Option<String>> {
+    if let Some(apply) = parse_apply_trailers(trailers)? {
+        return Ok(Some(apply.base));
+    }
+    Ok(parse_annotate_trailers(trailers)?.map(|annotate| annotate.base))
+}
+
 /// Formats apply trailers as a commit-message trailer block.
 pub fn format_apply_trailers(store_rev: &str, base: &str, tree: Option<&str>) -> String {
     let mut out = String::new();
@@ -315,6 +362,18 @@ pub fn format_apply_trailers(store_rev: &str, base: &str, tree: Option<&str>) ->
     out
 }
 
+/// Formats the trailer block for commits created by `bpatch annotate`.
+pub fn format_annotate_trailers(base: &str) -> String {
+    let mut out = String::new();
+    out.push_str(TRAILER_BASE);
+    out.push_str(": ");
+    out.push_str(base);
+    out.push('\n');
+    out.push_str(TRAILER_ANNOTATED);
+    out.push_str(": true\n");
+    out
+}
+
 /// Returns the conventional fallback group for unowned paths.
 pub fn unassigned_feature_name() -> &'static str {
     UNASSIGNED_FEATURE
@@ -329,6 +388,15 @@ fn find_latest_apply_commit(git: &GitAdapter) -> Result<Option<TrailerCommit>> {
                 trailers,
                 commit,
             }));
+        }
+    }
+    Ok(None)
+}
+
+fn find_latest_base_commit(git: &GitAdapter) -> Result<Option<BaseTrailerCommit>> {
+    for commit in git.first_parent_commits(None, Some(HISTORY_LIMIT))? {
+        if let Some(base) = parse_bpatch_authored_base(&git.commit_trailers(&commit)?)? {
+            return Ok(Some(BaseTrailerCommit { base }));
         }
     }
     Ok(None)
@@ -371,18 +439,21 @@ fn applied_tree(
 
 fn detect_drift(
     git: &GitAdapter,
+    store: &Store,
     applied_tree: &str,
     last_apply_subject: Option<&str>,
 ) -> Result<DriftState> {
     let mut files = Vec::new();
     let subject = last_apply_subject.unwrap_or("applied state");
     for entry in git.diff_tree_name_status(applied_tree, "HEAD^{tree}")? {
-        files.push(committed_drift(entry, subject));
+        if stores_path(store, &entry.path) {
+            files.push(committed_drift(entry, subject));
+        }
     }
 
     git.refresh_index()?;
     if git.diff_index_has_changes("HEAD")? {
-        files.extend(parse_porcelain_drift(&git.status_porcelain_z()?)?);
+        files.extend(parse_porcelain_drift(store, &git.status_porcelain_z()?)?);
     }
 
     if files.is_empty() {
@@ -390,6 +461,10 @@ fn detect_drift(
     } else {
         Ok(DriftState::Drifted { files })
     }
+}
+
+fn stores_path(store: &Store, path: &Path) -> bool {
+    path.to_str().is_none_or(|path| store.stores_path(path))
 }
 
 fn committed_drift(entry: TreeDiffEntry, subject: &str) -> DriftFile {
@@ -401,7 +476,7 @@ fn committed_drift(entry: TreeDiffEntry, subject: &str) -> DriftFile {
     }
 }
 
-fn parse_porcelain_drift(bytes: &[u8]) -> Result<Vec<DriftFile>> {
+fn parse_porcelain_drift(store: &Store, bytes: &[u8]) -> Result<Vec<DriftFile>> {
     let mut parts = bytes.split(|byte| *byte == 0);
     let mut files = Vec::new();
     let mut seen = BTreeSet::new();
@@ -421,7 +496,7 @@ fn parse_porcelain_drift(bytes: &[u8]) -> Result<Vec<DriftFile>> {
         if status.starts_with('R') || status.starts_with('C') {
             let _old_path = parts.next();
         }
-        if seen.insert(path.to_string()) {
+        if store.stores_path(path) && seen.insert(path.to_string()) {
             files.push(DriftFile {
                 path: PathBuf::from(path),
                 status: status.trim().to_string(),

@@ -176,6 +176,53 @@ fn adding_feature_appends_without_rewriting_existing_comments() -> Result<()> {
 }
 
 #[test]
+fn feature_store_false_defaults_and_appends_preserve_yaml() -> Result<()> {
+    let dir = tempfile::tempdir()?;
+    write_minimal_store(dir.path())?;
+    let original = fs::read(dir.path().join(".features.yaml"))?;
+
+    let mut store = Store::load(dir.path())?;
+    assert!(
+        store
+            .features()
+            .features
+            .get("llmchat")
+            .expect("llmchat")
+            .store
+    );
+    store.add_feature_with_store(
+        "build-resources",
+        "resource: bos_build outputs",
+        vec!["chrome/app/theme/chromium/".to_string()],
+        false,
+    )?;
+    store.append_feature_paths(
+        "build-resources",
+        vec!["chrome/BROWSEROS_VERSION".to_string()],
+    )?;
+    store.save()?;
+
+    let updated = fs::read(dir.path().join(".features.yaml"))?;
+    assert!(updated.starts_with(&original));
+    let text = String::from_utf8(updated)?;
+    assert!(text.contains("  build-resources:"));
+    assert!(text.contains("    store: false"));
+    assert!(text.contains("      - \"chrome/app/theme/chromium/\""));
+    assert!(text.contains("      - \"chrome/BROWSEROS_VERSION\""));
+
+    let reparsed = Store::load(dir.path())?;
+    let feature = reparsed
+        .features()
+        .features
+        .get("build-resources")
+        .expect("build-resources");
+    assert!(!feature.store);
+    assert!(!reparsed.stores_path("chrome/app/theme/chromium/logo.png"));
+    assert!(reparsed.stores_path("chrome/browser/ui/llmchat/panel.cc"));
+    Ok(())
+}
+
+#[test]
 fn non_patch_files_are_ignored_and_preserved_on_save() -> Result<()> {
     let dir = tempfile::tempdir()?;
     write_minimal_store(dir.path())?;

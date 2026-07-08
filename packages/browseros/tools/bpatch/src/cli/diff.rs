@@ -78,6 +78,7 @@ pub fn run(ctx: &StateContext) -> Result<DiffReport> {
     let patches = store
         .patches()
         .values()
+        .filter(|patch| store.stores_path(&patch.path))
         .map(|patch| ctx.store_dir.join(&patch.path))
         .collect::<Vec<_>>();
     let target_tree = crate::git::GitAdapter::new(&ctx.checkout)
@@ -87,9 +88,17 @@ pub fn run(ctx: &StateContext) -> Result<DiffReport> {
         .applied
         .as_ref()
         .map(|applied| applied.tree.as_str())
-        .unwrap_or(&state.head_tree);
+        .unwrap_or(&state.base.sha);
     let entries = crate::git::GitAdapter::new(&ctx.checkout)
-        .diff_tree_name_status(applied_tree, &target_tree)?;
+        .diff_tree_name_status(applied_tree, &target_tree)?
+        .into_iter()
+        .filter(|entry| {
+            entry
+                .path
+                .to_str()
+                .is_none_or(|path| store.stores_path(path))
+        })
+        .collect::<Vec<_>>();
 
     let mut groups = BTreeMap::<String, Vec<DiffFile>>::new();
     let mut build_files_changed = 0;

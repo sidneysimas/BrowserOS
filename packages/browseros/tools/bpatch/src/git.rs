@@ -266,7 +266,7 @@ impl GitAdapter {
 
     /// Returns `git status --porcelain -z` for exact uncommitted paths.
     pub fn status_porcelain_z(&self) -> GitResult<Vec<u8>> {
-        Ok(self.git.run(&["status", "--porcelain", "-z"])?)
+        Ok(self.git.run(&["status", "--porcelain", "-z", "-uall"])?)
     }
 
     /// Builds a tree by applying patches to a base in a temporary index.

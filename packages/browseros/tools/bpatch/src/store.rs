@@ -122,8 +122,19 @@ impl Store {
         Ok(())
     }
 
-    /// Appends a new feature block while leaving existing .features.yaml bytes intact.
+    /// Appends a new stored feature block while leaving existing .features.yaml bytes intact.
     pub fn add_feature(&mut self, name: &str, description: &str, paths: Vec<String>) -> Result<()> {
+        self.add_feature_with_store(name, description, paths, true)
+    }
+
+    /// Appends a new feature block while preserving the surrounding YAML bytes.
+    pub fn add_feature_with_store(
+        &mut self,
+        name: &str,
+        description: &str,
+        paths: Vec<String>,
+        store: bool,
+    ) -> Result<()> {
         validate_feature_name(name)?;
         if self.features.features.contains_key(name) {
             bail!("feature {name} already exists");
@@ -135,9 +146,35 @@ impl Store {
             validate_feature_path(path)?;
         }
 
-        append_feature_block(&mut self.features_yaml, name, description, &paths)?;
+        append_feature_block(&mut self.features_yaml, name, description, store, &paths)?;
         self.features = parse_features_yaml(&self.features_yaml)?;
         Ok(())
+    }
+
+    /// Appends owned paths to an existing feature without reserializing comments.
+    pub fn append_feature_paths(&mut self, name: &str, paths: Vec<String>) -> Result<usize> {
+        validate_feature_name(name)?;
+        if paths.is_empty() {
+            return Ok(0);
+        }
+        let Some(feature) = self.features.features.get(name) else {
+            bail!("feature {name} does not exist");
+        };
+        let mut existing = feature.paths.iter().cloned().collect::<BTreeSet<_>>();
+        let mut appended = Vec::new();
+        for path in paths {
+            validate_feature_path(&path)?;
+            if existing.insert(path.clone()) {
+                appended.push(path);
+            }
+        }
+        if appended.is_empty() {
+            return Ok(0);
+        }
+
+        append_paths_to_feature_block(&mut self.features_yaml, name, &appended)?;
+        self.features = parse_features_yaml(&self.features_yaml)?;
+        Ok(appended.len())
     }
 
     /// Resolves a chromium path to a feature match or a nearest-path suggestion.
@@ -156,6 +193,18 @@ impl Store {
         }
         FeatureMatch::Unmatched {
             suggestion: self.nearest_suggestion(path),
+        }
+    }
+
+    /// Returns whether path content belongs in the patch store.
+    pub fn stores_path(&self, path: &str) -> bool {
+        match self.match_path(path) {
+            FeatureMatch::Matched { feature, .. } => self
+                .features
+                .features
+                .get(&feature)
+                .is_none_or(|feature| feature.store),
+            FeatureMatch::Unmatched { .. } => true,
         }
     }
 
@@ -255,6 +304,7 @@ pub struct Feature {
     pub name: String,
     pub description: String,
     pub paths: Vec<String>,
+    pub store: bool,
 }
 
 /// One per-file unified diff stored under its chromium-relative path.
@@ -345,6 +395,7 @@ struct FeaturesYaml {
 #[derive(Debug, Deserialize)]
 struct FeatureYaml {
     description: Option<String>,
+    store: Option<bool>,
     files: Option<Vec<String>>,
 }
 
@@ -361,6 +412,7 @@ fn parse_features_yaml(bytes: &[u8]) -> Result<Features> {
             Feature {
                 name,
                 description: feature.description.unwrap_or_default(),
+                store: feature.store.unwrap_or(true),
                 paths,
             },
         );
@@ -575,6 +627,7 @@ fn append_feature_block(
     yaml: &mut Vec<u8>,
     name: &str,
     description: &str,
+    store: bool,
     paths: &[String],
 ) -> Result<()> {
     if yaml.is_empty() {
@@ -592,6 +645,9 @@ fn append_feature_block(
     block.push_str("    description: ");
     block.push_str(&yaml_string(description));
     block.push('\n');
+    if !store {
+        block.push_str("    store: false\n");
+    }
     block.push_str("    files:\n");
     for path in paths {
         block.push_str("      - ");
@@ -599,6 +655,59 @@ fn append_feature_block(
         block.push('\n');
     }
     yaml.extend_from_slice(block.as_bytes());
+    Ok(())
+}
+
+fn append_paths_to_feature_block(yaml: &mut Vec<u8>, name: &str, paths: &[String]) -> Result<()> {
+    let text = std::str::from_utf8(yaml).context(".features.yaml is not UTF-8")?;
+    let lines = text
+        .split_inclusive('\n')
+        .map(ToOwned::to_owned)
+        .collect::<Vec<_>>();
+    let header = format!("  {name}:");
+    let feature_start = lines
+        .iter()
+        .position(|line| line.trim_end() == header)
+        .ok_or_else(|| anyhow!("feature {name} does not exist in .features.yaml bytes"))?;
+    let feature_end = lines
+        .iter()
+        .enumerate()
+        .skip(feature_start + 1)
+        .find_map(|(index, line)| {
+            let trimmed = line.trim_end();
+            (trimmed.starts_with("  ") && !trimmed.starts_with("    ")).then_some(index)
+        })
+        .unwrap_or(lines.len());
+    let files_line = lines[feature_start + 1..feature_end]
+        .iter()
+        .position(|line| line.trim() == "files:")
+        .map(|offset| feature_start + 1 + offset)
+        .ok_or_else(|| anyhow!("feature {name} has no files list in .features.yaml"))?;
+    let insert_at = lines
+        .iter()
+        .enumerate()
+        .take(feature_end)
+        .skip(files_line + 1)
+        .find_map(|(index, line)| {
+            let trimmed = line.trim_start();
+            (!(trimmed.starts_with("- ") || trimmed.starts_with('#') || trimmed.trim().is_empty()))
+                .then_some(index)
+        })
+        .unwrap_or(feature_end);
+
+    let mut next = String::new();
+    for line in &lines[..insert_at] {
+        next.push_str(line);
+    }
+    for path in paths {
+        next.push_str("      - ");
+        next.push_str(&yaml_string(path));
+        next.push('\n');
+    }
+    for line in &lines[insert_at..] {
+        next.push_str(line);
+    }
+    *yaml = next.into_bytes();
     Ok(())
 }
 

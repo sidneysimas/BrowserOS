@@ -62,6 +62,11 @@ apply: store 8c1f2ab (delta vs applied 55e0d3c: 3 files)
   ✓ 3 files written · 3,161 store-managed files untouched (content + mtime preserved)
   ✓ commit 7ab19c2 "feat: llmchat #2"   [Bpatch-Store-Rev: 8c1f2ab]
 converged. → incremental build will recompile ~1 target dir
+
+$ bpatch annotate
+claimed 41 -> 12 feature commits
+resources 214 -> 1 commit "resource: bos_build outputs"
+next: bpatch extract <annotated-rev-range> to fold feature commits into the store
 ```
 
 The same checkout-scoped commands can target an alias or path from any directory:
@@ -89,9 +94,10 @@ Global flags:
 | `bpatch status` | global flags | `0`, `3`, `1` | Show checkout base, store rev, applied trailers, and drift. |
 | `bpatch diff` | global flags | `0`, `3`, `1` | Show what `apply` would touch, grouped by feature, with rebuild-scope hint. |
 | `bpatch apply` | `--pull`, global flags | `0`, `2`, `3`, `1` | Optionally fast-forward the store repo, then converge the checkout or report conflicts/drift. |
+| `bpatch annotate` | `--rest <NAME>`, `--triage`, global flags | `0`, `2`, `3`, `1` | Commit dirty bos_build output into feature commits, one resource commit for `store:false` groups, and report unclaimed leftovers. |
 | `bpatch extract [SPEC]` | `--feature <FEATURE>`, `--commit`, `--repin`, global flags | `0`, `3`, `1` | Extract `<rev>` or `<rev1>..<rev2>` into the store, or repin existing store patches to the checkout base. |
 | `bpatch feature list` | global flags | `0`, `1` | List features, owned patch counts, and last applied sequence numbers. |
-| `bpatch feature add <NAME> --path <PATH>` | `--description <DESCRIPTION>`, global flags | `0`, `1` | Append a new feature block to `.features.yaml`. |
+| `bpatch feature add <NAME> [PATH...]` | `--path <PATH>`, `--desc <DESCRIPTION>`, `--store=false`, `--from-dirty`, `--commit`, global flags | `0`, `1` | Append paths to `.features.yaml`, or claim currently unclaimed dirty paths into a feature/resource group. |
 | `bpatch alias add <NAME> <PATH>` | global flags | `0`, `1` | Add or update a checkout alias in `~/.config/bpatch/config.toml`. |
 | `bpatch alias list` | global flags | `0`, `1` | List checkout aliases. |
 | `bpatch alias remove <NAME>` | global flags | `0`, `1` | Remove a checkout alias. |
@@ -112,6 +118,38 @@ Global flags:
 | `1` | CLI, git, lock, config, or unexpected error. |
 
 With `--json`, every command emits a single object carrying `result` and `exit`.
+
+## Annotating bos_build Output
+
+`annotate` is for a Chromium checkout dirtied by bos_build's patch/build pipeline. It classifies dirty paths with the same ownership rules as the store:
+
+- paths with patch files or `store: true` feature entries become feature commits;
+- paths owned by `store: false` feature entries become one `resource: bos_build outputs` commit;
+- unclaimed paths are left dirty, reported with `bpatch feature add ...` suggestions, and return exit 3.
+
+```console
+$ bpatch annotate
+claimed 3088 -> 41 feature commits
+resources 214 -> 1 commit "resource: bos_build outputs"
+unclaimed 2 (left in working tree):
+  chrome/browser/browseros/wallet/service.cc                 suggest: bpatch feature add wallet chrome/browser/browseros/wallet/ --desc "feat: wallet"
+exit 3
+
+$ bpatch annotate --rest wip-frame-experiments
+rest 2 -> 1 commit "wip: wip-frame-experiments"
+```
+
+Use `--triage --json` when an agent needs the unclaimed-path plan without opening an editor. Annotate commits carry `Bpatch-Base` and `Bpatch-Annotated`; they intentionally do not claim a store revision. After feature commits are reviewed, fold them back with `bpatch extract <rev-range>`.
+
+Resource groups are seeded from a clean checkout by running the build without applying patches, then claiming the resulting dirty paths:
+
+```console
+$ bos_build build --debug --skip patches
+$ bpatch feature add build-resources --store=false --from-dirty
+scanned 217 dirty paths · collapsed to 9 dirs + 12 files · 214 new, 3 already claimed
+updated feature "build-resources" in .features.yaml
+next: --commit to commit the store repo
+```
 
 ## Troubleshooting
 
@@ -180,6 +218,18 @@ Use `ls -a` to see the store metadata files. They are dot-prefixed so generic pa
 
 `.features.yaml` entries can own exact files or directory prefixes ending in `/`. `extract` matches exact paths first, then prefixes, then reports or creates the nearest feature decision.
 
+Set `store: false` on feature groups for build-owned resources that should be committed by `annotate` but skipped by `extract`, `apply`, `status`, and `diff` store-convergence math:
+
+```yaml
+features:
+  build-resources:
+    description: "resource: bos_build outputs"
+    store: false
+    files:
+      - chrome/BROWSEROS_VERSION
+      - chrome/app/theme/chromium/
+```
+
 ## Cutover Checklist Vs `tools/patch`
 
 The old Go tool stays in the repo until cutover; removing it is a separate effort. `packages/browseros/bos_build/features.yaml` also still exists for `bos_build`'s reader while consolidation is pending.
@@ -189,10 +239,11 @@ The old Go tool stays in the repo until cutover; removing it is a separate effor
 | `status` | `bpatch status` |
 | `diff` | `bpatch diff` |
 | `apply` / checkout catch-up | `bpatch apply` |
+| annotate dirty bos_build output | `bpatch annotate` |
 | store refresh by pulling first | `bpatch apply --pull` |
 | `extract` | `bpatch extract <rev>` or `bpatch extract <rev1>..<rev2>` |
 | feature inventory | `bpatch feature list` |
-| feature creation | `bpatch feature add <name> --path <path> [--description ...]` |
+| feature creation/top-up | `bpatch feature add <name> <path> [--desc ...]` or `bpatch feature add <name> --from-dirty` |
 | checkout aliases | `bpatch alias add <name> <path>`, then `bpatch apply <name>` or `bpatch -C <name> ...` |
 | conflict abort | `bpatch abort` |
 | conflict continue | `bpatch continue` or `bpatch continue --materialize` |

@@ -7,7 +7,7 @@ use std::process::Command;
 
 use anyhow::{Context, Result};
 use bpatch::engine::lock::CheckoutLock;
-use bpatch::engine::state::{TRAILER_BASE, TRAILER_STORE_REV, TRAILER_TREE};
+use bpatch::engine::state::{TRAILER_ANNOTATED, TRAILER_BASE, TRAILER_STORE_REV, TRAILER_TREE};
 use bpatch::process::Git;
 use bpatch::store::Store;
 use fixtures::FixtureRepo;
@@ -52,6 +52,7 @@ fn top_level_help_teaches_chromium_workflow() -> Result<()> {
     assert!(stdout.contains("bpatch status"));
     assert!(stdout.contains("bpatch diff"));
     assert!(stdout.contains("bpatch apply"));
+    assert!(stdout.contains("bpatch annotate"));
     assert!(stdout.contains("bpatch extract <rev1>..<rev2> --feature <name>"));
     assert!(stdout.contains("bpatch apply -> bpatch continue --materialize"));
     assert!(stdout.contains("EXIT CODES:"));
@@ -536,6 +537,243 @@ fn sim6_needs_feature_json_then_named_feature_extracts() -> Result<()> {
     assert_eq!(json["patches"], 4);
     assert_eq!(json["new_features"][0], "wallet");
     assert_eq!(json["exit"], 0);
+    Ok(())
+}
+
+#[test]
+fn sim7_annotate_commits_claimed_resources_and_leaves_leftovers_then_rest() -> Result<()> {
+    let checkout = FixtureRepo::new()?;
+    let base = write_annotate_base(&checkout)?;
+    let store = FixtureRepo::new()?;
+    let store_dir = seed_annotate_store(&store, &base)?;
+    store.commit("seed annotate store")?;
+
+    checkout.write_file("chrome/browser/browseros/core/service.cc", "core changed\n")?;
+    checkout.plant_untracked("chrome/browser/browseros/core/new_file.cc", "new core\n")?;
+    checkout.write_file("chrome/BROWSEROS_VERSION", "148.0.7204.1-browseros\n")?;
+    checkout.plant_untracked("chrome/app/theme/chromium/logo.png", "logo\n")?;
+    checkout.plant_untracked("chrome/browser/browseros/wallet/service.cc", "wallet\n")?;
+
+    let annotated = run_bpatch(checkout.path(), Some(&store_dir), strs(&["annotate"]))?;
+    assert_eq!(annotated.code, 3, "{}", annotated.stderr);
+    assert!(annotated.stdout.contains("claimed 2 -> 1 feature commit"));
+    assert!(
+        annotated
+            .stdout
+            .contains("resources 2 -> 1 commit \"resource: bos_build outputs\"")
+    );
+    assert!(
+        annotated
+            .stdout
+            .contains("unclaimed 1 (left in working tree):")
+    );
+    assert!(
+        annotated
+            .stdout
+            .contains("chrome/browser/browseros/wallet/service.cc")
+    );
+    assert!(annotated.stdout.contains("bpatch feature add wallet"));
+
+    let subjects = checkout.git().run_str(&["log", "--format=%s", "-2"])?;
+    assert!(
+        subjects
+            .lines()
+            .any(|line| line == "resource: bos_build outputs")
+    );
+    assert!(
+        subjects
+            .lines()
+            .any(|line| line == "chore: browseros core infrastructure")
+    );
+    assert!(
+        checkout
+            .git()
+            .run_str(&[
+                "ls-tree",
+                "-r",
+                "--name-only",
+                "HEAD",
+                "--",
+                "chrome/browser/browseros/core/new_file.cc",
+            ])?
+            .contains("chrome/browser/browseros/core/new_file.cc")
+    );
+
+    let message = checkout.git().run_str(&["log", "-1", "--format=%B"])?;
+    assert!(message.contains(TRAILER_BASE));
+    assert!(message.contains(TRAILER_ANNOTATED));
+    assert!(!message.contains(TRAILER_STORE_REV));
+    let status = checkout.status_porcelain()?;
+    assert!(status.contains("chrome/browser/browseros/wallet"));
+    assert!(!status.contains("chrome/browser/browseros/core/new_file.cc"));
+    assert!(!status.contains("chrome/BROWSEROS_VERSION"));
+
+    let rest = run_bpatch(
+        checkout.path(),
+        Some(&store_dir),
+        strs(&["annotate", "--rest", "wip-frame-experiments"]),
+    )?;
+    assert_eq!(rest.code, 0, "{}", rest.stderr);
+    assert!(
+        rest.stdout
+            .contains("rest 1 -> 1 commit \"wip: wip-frame-experiments\"")
+    );
+    assert_eq!(
+        checkout.git().run_str(&["log", "-1", "--format=%s"])?,
+        "wip: wip-frame-experiments"
+    );
+    assert!(checkout.status_porcelain()?.is_empty());
+    Ok(())
+}
+
+#[test]
+fn sim8_annotate_triage_json_then_feature_add_round_trip() -> Result<()> {
+    let checkout = FixtureRepo::new()?;
+    let base = write_annotate_base(&checkout)?;
+    let store = FixtureRepo::new()?;
+    let store_dir = seed_annotate_store(&store, &base)?;
+    store.commit("seed annotate store")?;
+
+    checkout.plant_untracked("chrome/browser/browseros/wallet/service.cc", "wallet\n")?;
+
+    let triage = run_bpatch(
+        checkout.path(),
+        Some(&store_dir),
+        strs(&["annotate", "--triage", "--json"]),
+    )?;
+    assert_eq!(triage.code, 3, "{}", triage.stderr);
+    let json = parse_json(&triage.stdout)?;
+    assert_eq!(json["result"], "triage");
+    assert_eq!(
+        json["unclaimed"][0]["path"],
+        "chrome/browser/browseros/wallet/service.cc"
+    );
+    assert!(
+        json["unclaimed"][0]["command"]
+            .as_str()
+            .expect("command")
+            .contains("bpatch feature add wallet chrome/browser/browseros/wallet/")
+    );
+
+    let add = run_bpatch(
+        checkout.path(),
+        Some(&store_dir),
+        strs(&[
+            "feature",
+            "add",
+            "wallet",
+            "chrome/browser/browseros/wallet/",
+            "--desc",
+            "feat: wallet",
+            "--json",
+        ]),
+    )?;
+    assert_eq!(add.code, 0, "{}", add.stderr);
+    assert_eq!(parse_json(&add.stdout)?["result"], "feature-added");
+
+    let annotated = run_bpatch(
+        checkout.path(),
+        Some(&store_dir),
+        strs(&["annotate", "--json"]),
+    )?;
+    assert_eq!(annotated.code, 0, "{}", annotated.stderr);
+    let json = parse_json(&annotated.stdout)?;
+    assert_eq!(json["result"], "annotated");
+    assert_eq!(json["claimed"], 1);
+    assert!(checkout.status_porcelain()?.is_empty());
+    Ok(())
+}
+
+#[test]
+fn sim9_store_false_resource_commit_is_clean_for_status_and_diff() -> Result<()> {
+    let checkout = FixtureRepo::new()?;
+    let base = write_annotate_base(&checkout)?;
+    let store = FixtureRepo::new()?;
+    let store_dir = seed_annotate_store(&store, &base)?;
+    store.commit("seed annotate store")?;
+
+    checkout.write_file("chrome/BROWSEROS_VERSION", "resource changed\n")?;
+    let annotated = run_bpatch(
+        checkout.path(),
+        Some(&store_dir),
+        strs(&["annotate", "--json"]),
+    )?;
+    assert_eq!(annotated.code, 0, "{}", annotated.stderr);
+    let json = parse_json(&annotated.stdout)?;
+    assert_eq!(json["result"], "annotated");
+    assert_eq!(json["resources"], 1);
+
+    let status = run_bpatch(
+        checkout.path(),
+        Some(&store_dir),
+        strs(&["status", "--json"]),
+    )?;
+    assert_eq!(status.code, 0, "{}", status.stderr);
+    let json = parse_json(&status.stdout)?;
+    assert_eq!(json["result"], "clean");
+    assert_eq!(json["drift"].as_array().expect("drift").len(), 0);
+
+    let diff = run_bpatch(checkout.path(), Some(&store_dir), strs(&["diff", "--json"]))?;
+    assert_eq!(diff.code, 0, "{}", diff.stderr);
+    let json = parse_json(&diff.stdout)?;
+    assert_eq!(json["result"], "converged");
+    assert_eq!(json["files_changed"], 0);
+    Ok(())
+}
+
+#[test]
+fn sim10_feature_add_from_dirty_collapses_dirs_and_is_idempotent() -> Result<()> {
+    let checkout = FixtureRepo::new()?;
+    let base = write_annotate_base(&checkout)?;
+    let store = FixtureRepo::new()?;
+    let store_dir = seed_capture_store(&store, &base)?;
+    store.commit("seed capture store")?;
+
+    checkout.write_file("chrome/app/theme/chromium/icon16.png", "icon16 changed\n")?;
+    checkout.write_file("chrome/app/theme/chromium/icon32.png", "icon32 changed\n")?;
+    checkout.write_file("chrome/BROWSEROS_VERSION", "resource changed\n")?;
+
+    let add = run_bpatch(
+        checkout.path(),
+        Some(&store_dir),
+        strs(&[
+            "feature",
+            "add",
+            "build-resources",
+            "--store=false",
+            "--from-dirty",
+            "--json",
+        ]),
+    )?;
+    assert_eq!(add.code, 0, "{}", add.stderr);
+    let json = parse_json(&add.stdout)?;
+    assert_eq!(json["result"], "feature-added");
+    assert_eq!(json["store"], false);
+    assert_eq!(json["appended"], 3);
+    assert_eq!(json["skipped"], 0);
+    assert_eq!(json["collapsed_dirs"], 1);
+    assert_eq!(json["collapsed_files"], 1);
+    let features = fs::read_to_string(store_dir.join(".features.yaml"))?;
+    assert!(features.contains("    store: false"));
+    assert!(features.contains("      - \"chrome/app/theme/chromium/\""));
+    assert!(features.contains("      - \"chrome/BROWSEROS_VERSION\""));
+
+    let repeat = run_bpatch(
+        checkout.path(),
+        Some(&store_dir),
+        strs(&[
+            "feature",
+            "add",
+            "build-resources",
+            "--store=false",
+            "--from-dirty",
+            "--json",
+        ]),
+    )?;
+    assert_eq!(repeat.code, 0, "{}", repeat.stderr);
+    let json = parse_json(&repeat.stdout)?;
+    assert_eq!(json["appended"], 0);
+    assert_eq!(json["skipped"], 3);
     Ok(())
 }
 
@@ -1342,6 +1580,57 @@ features:
     description: "chore: bootstrap"
     files:
       - chrome/browser/browseros/BUILD.gn
+"#,
+    )?;
+    Ok(store.path().join("chromium_patches"))
+}
+
+fn write_annotate_base(repo: &FixtureRepo) -> Result<String> {
+    repo.write_file(
+        "chrome/VERSION",
+        "MAJOR=148\nMINOR=0\nBUILD=7204\nPATCH=1\n",
+    )?;
+    repo.write_file("chrome/browser/browseros/core/service.cc", "core base\n")?;
+    repo.write_file("chrome/BROWSEROS_VERSION", "base resource\n")?;
+    repo.write_file("chrome/app/theme/chromium/icon16.png", "icon16 base\n")?;
+    repo.write_file("chrome/app/theme/chromium/icon32.png", "icon32 base\n")?;
+    repo.commit("Chromium 148.0.7204.1")
+}
+
+fn seed_annotate_store(store: &FixtureRepo, base: &str) -> Result<PathBuf> {
+    let store_dir = seed_capture_store(store, base)?;
+    store.write_file(
+        "chromium_patches/.features.yaml",
+        r#"version: "1.0"
+features:
+  browseros-core:
+    description: "chore: browseros core infrastructure"
+    files:
+      - chrome/browser/browseros/core/
+  build-resources:
+    description: "resource: bos_build outputs"
+    store: false
+    files:
+      - chrome/BROWSEROS_VERSION
+      - chrome/app/theme/chromium/
+"#,
+    )?;
+    Ok(store_dir)
+}
+
+fn seed_capture_store(store: &FixtureRepo, base: &str) -> Result<PathBuf> {
+    store.write_file(
+        "chromium_patches/.store.yaml",
+        format!("base_commit: {base}\nbase_version: \"148.0.7204.1\"\n"),
+    )?;
+    store.write_file(
+        "chromium_patches/.features.yaml",
+        r#"version: "1.0"
+features:
+  browseros-core:
+    description: "chore: browseros core infrastructure"
+    files:
+      - chrome/browser/browseros/core/
 "#,
     )?;
     Ok(store.path().join("chromium_patches"))

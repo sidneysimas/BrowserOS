@@ -322,7 +322,7 @@ class CopyResourcesTest(unittest.TestCase):
         self.assertFalse(claw_dest.exists())
         self.assertFalse(claw_rust_dest.exists())
 
-    def test_real_config_copies_rust_server_resources_for_browserclaw_by_default(
+    def test_real_config_copies_bun_server_resources_for_browserclaw_by_default(
         self,
     ):
         self.root.write_copy_config(self._real_copy_config())
@@ -358,7 +358,7 @@ class CopyResourcesTest(unittest.TestCase):
         (claw_rust_source / "bin" / "browseros-claw-server-rs").write_text(
             "claw-rust"
         )
-        stale_ts_only_file = (
+        stale_rust_file = (
             self.chromium.src
             / "chrome"
             / "browser"
@@ -366,11 +366,10 @@ class CopyResourcesTest(unittest.TestCase):
             / "claw_server"
             / "resources"
             / "bin"
-            / "third_party"
-            / "bun"
+            / "browseros-claw-server-rs"
         )
-        stale_ts_only_file.parent.mkdir(parents=True)
-        stale_ts_only_file.write_text("stale")
+        stale_rust_file.parent.mkdir(parents=True)
+        stale_rust_file.write_text("stale")
 
         with patch(
             "bos_build.steps.resources.resources.get_platform",
@@ -416,11 +415,11 @@ class CopyResourcesTest(unittest.TestCase):
             / "browseros-claw-server-rs"
         )
         self.assertEqual(browseros_dest.read_text(), "browseros")
-        self.assertEqual(claw_dest.read_text(), "claw-rust")
+        self.assertEqual(claw_dest.read_text(), "claw")
         self.assertFalse(claw_rust_dest.exists())
-        self.assertFalse(stale_ts_only_file.exists())
+        self.assertFalse(stale_rust_file.exists())
 
-    def test_real_config_keeps_typescript_claw_server_switch_block_commented(
+    def test_real_config_keeps_rust_claw_server_switch_block_commented(
         self,
     ):
         config_path = (
@@ -431,22 +430,26 @@ class CopyResourcesTest(unittest.TestCase):
         active_names = [op["name"] for op in config["copy_operations"]]
 
         self.assertIn(
-            "# BrowserOS Claw Server resources - switch variants by swapping which block is commented.",
+            "# BrowserOS Claw Server resources - Bun ships by default.",
             text,
         )
         self.assertIn(
-            '# - name: "BrowserOS Claw Server Resources - macOS ARM64"',
+            "# Rust alternative: comment the Bun blocks below and uncomment the matching",
             text,
         )
         self.assertIn(
-            '#   destination: "chrome/browser/browseros/claw_server/resources"',
+            '# - name: "BrowserOS Claw Rust Server Resources - macOS ARM64"',
             text,
         )
-        self.assertNotIn(
+        self.assertIn(
+            '#     - from: "bin/browseros-claw-server-rs"',
+            text,
+        )
+        self.assertIn(
             "BrowserOS Claw Server Resources - macOS ARM64",
             active_names,
         )
-        self.assertIn(
+        self.assertNotIn(
             "BrowserOS Claw Rust Server Resources - macOS ARM64",
             active_names,
         )

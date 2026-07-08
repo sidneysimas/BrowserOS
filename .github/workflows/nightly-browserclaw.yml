@@ -148,10 +148,8 @@ jobs:
           bun scripts/build/server.ts --target=darwin-arm64 --ci
           bun scripts/build/claw-server.ts --target=darwin-arm64 --ci
           bun scripts/build/claw-onboard.ts --ci
-          "$agent_root/scripts/build/claw-server-rust-local.sh" \
-            --target darwin-arm64 \
-            --agent-root "$agent_root" \
-            --browseros-root "$browseros_root"
+          # Rust alternative: run scripts/build/claw-server-rust-local.sh here
+          # and flip copy_resources.yaml/download_resources.yaml.
 
           cd "$browseros_root"
           AGENT_ROOT="$agent_root" BROWSEROS_ROOT="$browseros_root" uv run python - <<'PY'

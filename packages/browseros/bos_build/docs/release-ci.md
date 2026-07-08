@@ -80,27 +80,26 @@ Server resources do not use that version. `release-server.yml` resolves
 `claw-server-rust/vX.Y.Z`.
 
 The Rust Claw server lane publishes to a distinct CDN/R2 prefix:
-`claw-server-rust/prod-resources/{version,latest}/`. Do not add
-`download_resources.yaml` entries that point at a new Rust server version until
-that workflow has populated the matching R2 objects; the bos_build download
-step fails the whole Chromium build when a configured key is missing.
-
-BrowserClaw browser builds download both claw-server variants:
-Rust from `claw-server-rust/prod-resources/latest/` and TypeScript/Bun from
-`claw-server/prod-resources/latest/`. The embedded variant is selected in
-`packages/browseros/bos_build/config/copy_resources.yaml` by swapping which
-BrowserClaw claw-server block is commented. The Rust block is active by default
-and renames `browseros-claw-server-rs` to the runtime name
-`browseros-claw-server`. BrowserClaw server OTA feeds
-(`appcast-claw-server*.xml`) remain pinned to the TypeScript server bundle
-until a separate feed migration changes them.
+`claw-server-rust/prod-resources/{version,latest}/`. BrowserClaw browser builds
+ship the TypeScript/Bun server by default from `claw-server/prod-resources/latest/`.
+The Rust download entries in
+`packages/browseros/bos_build/config/download_resources.yaml` and the Rust copy
+entries in `packages/browseros/bos_build/config/copy_resources.yaml` are kept as
+commented alternatives. To ship Rust, uncomment the matching Rust blocks,
+comment the Bun blocks, and ensure the Rust workflow has already populated the
+matching R2 objects; the bos_build download step fails the whole Chromium build
+when a configured key is missing. The Rust copy blocks rename
+`browseros-claw-server-rs` to the runtime name `browseros-claw-server`.
+BrowserClaw server OTA feeds (`appcast-claw-server*.xml`) remain pinned to the
+TypeScript/Bun server bundle until a separate feed migration changes them.
 
 `release-macos.yml` follows this release rule too: it does not build server
 resources from the checked-out `packages/browseros-agent` tree. Its browser
 build command leaves downloads enabled, so `download_resources` fetches the
-published BrowserOS server bundle, both BrowserClaw server bundles, and the
-onboarding bundle from R2 using the runner-local `packages/browseros/.env` R2
-credentials.
+published BrowserOS server bundle, the active Bun BrowserClaw server bundle, and
+the onboarding bundle from R2 using the runner-local `packages/browseros/.env`
+R2 credentials. Flip the commented Rust blocks only when intentionally shipping
+the Rust server.
 
 The reusable nesting depth is `release-browseros.yml` or
 `release-browserclaw.yml` -> `release-linux.yml` or `release-windows.yml` ->

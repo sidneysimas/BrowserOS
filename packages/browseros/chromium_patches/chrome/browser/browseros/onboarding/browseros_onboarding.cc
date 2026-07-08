@@ -1,9 +1,9 @@
 diff --git a/chrome/browser/browseros/onboarding/browseros_onboarding.cc b/chrome/browser/browseros/onboarding/browseros_onboarding.cc
 new file mode 100644
-index 0000000000000..7c79662ac3a21
+index 0000000000000..372f36bcb4864f440e38a461e9cf4ab982b191dd
 --- /dev/null
 +++ b/chrome/browser/browseros/onboarding/browseros_onboarding.cc
-@@ -0,0 +1,599 @@
+@@ -0,0 +1,605 @@
 +// Copyright 2026 The Chromium Authors
 +// Use of this source code is governed by a BSD-style license that can be
 +// found in the LICENSE file.
@@ -281,6 +281,11 @@ index 0000000000000..7c79662ac3a21
 +  }
 +
 +  void HandleComplete(const base::ListValue& args) {
++    if (completion_handled_) {
++      return;
++    }
++    completion_handled_ = true;
++
 +    SendState("completed");
 +
 +    if (completion_callback_) {
@@ -575,6 +580,7 @@ index 0000000000000..7c79662ac3a21
 +  uint16_t imported_items_ = user_data_importer::NONE;
 +  bool importer_list_loaded_ = false;
 +  bool import_did_succeed_ = false;
++  bool completion_handled_ = false;
 +};
 +
 +BrowserOSOnboardingUIConfig::BrowserOSOnboardingUIConfig()

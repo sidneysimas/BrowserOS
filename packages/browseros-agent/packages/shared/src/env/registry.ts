@@ -236,10 +236,7 @@ export const ENV_REGISTRY: readonly EnvKeySpec[] = [
     schema: stringSchema,
     modes: {
       development: { value: '' },
-      production: {
-        value:
-          'https://08d37194d0cfaed69687c3803216daa4@o4510545525932032.ingest.us.sentry.io/4510545527111680',
-      },
+      production: { value: '' },
     },
   },
   {

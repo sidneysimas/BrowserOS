@@ -221,14 +221,15 @@ class CiGoldenTest(unittest.TestCase):
 
 class DebugGoldenTest(unittest.TestCase):
     def test_debug_macos(self):
-        # config/debug.yaml — no clean, no bundled_extensions, no
-        # series_patches, no sparkle_setup, no sign, no upload
+        # config/debug.yaml — no clean, no series_patches, no sparkle_setup,
+        # no sign, no upload
         self.assertEqual(
             plan(Switches(preset="debug"), "arm64", "macos"),
             [
                 "git_setup",
                 "download_resources",
                 "resources",
+                "bundled_extensions",
                 "chromium_replace",
                 "string_replaces",
                 "patches",
@@ -250,6 +251,7 @@ class DebugGoldenTest(unittest.TestCase):
                 "winsparkle_setup",
                 "download_resources",
                 "resources",
+                "bundled_extensions",
                 "chromium_replace",
                 "string_replaces",
                 "patches",
@@ -257,6 +259,23 @@ class DebugGoldenTest(unittest.TestCase):
                 "compile",
                 "mini_installer",
                 "package_windows",
+            ],
+        )
+
+    def test_debug_linux(self):
+        self.assertEqual(
+            plan(Switches(preset="debug"), "x64", "linux"),
+            [
+                "git_setup",
+                "download_resources",
+                "resources",
+                "bundled_extensions",
+                "chromium_replace",
+                "string_replaces",
+                "patches",
+                "configure",
+                "compile",
+                "package_linux",
             ],
         )
 

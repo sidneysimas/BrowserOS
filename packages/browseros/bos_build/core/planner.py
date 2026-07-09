@@ -235,6 +235,7 @@ def _plan_debug(switches: Switches, platform: str) -> List[str]:
     steps.extend(
         [
             "resources",
+            "bundled_extensions",
             "chromium_replace",
             "string_replaces",
             "patches",

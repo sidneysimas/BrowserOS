@@ -1,9 +1,9 @@
 diff --git a/chrome/browser/browseros/onboarding/browseros_onboarding_prefs.cc b/chrome/browser/browseros/onboarding/browseros_onboarding_prefs.cc
 new file mode 100644
-index 0000000000000..48d0532711afc
+index 0000000000000000000000000000000000000000..3ed691ccd8724e630b36e6d02150d7e9c1a059b3
 --- /dev/null
 +++ b/chrome/browser/browseros/onboarding/browseros_onboarding_prefs.cc
-@@ -0,0 +1,51 @@
+@@ -0,0 +1,56 @@
 +// Copyright 2026 The Chromium Authors
 +// Use of this source code is governed by a BSD-style license that can be
 +// found in the LICENSE file.
@@ -12,6 +12,7 @@ index 0000000000000..48d0532711afc
 +
 +#include "chrome/browser/browser_process.h"
 +#include "chrome/browser/browseros/core/browseros_prefs.h"
++#include "chrome/browser/browseros/core/browseros_product.h"
 +#include "chrome/browser/profiles/profile.h"
 +#include "chrome/common/chrome_constants.h"
 +#include "chrome/common/pref_names.h"
@@ -20,6 +21,10 @@ index 0000000000000..48d0532711afc
 +namespace browseros::onboarding {
 +
 +bool ShouldShow(Profile* profile) {
++  if (browseros::IsBrowserOSProduct()) {
++    return false;
++  }
++
 +  if (!profile || !profile->IsRegularProfile() || profile->IsOffTheRecord()) {
 +    return false;
 +  }

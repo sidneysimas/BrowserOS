@@ -1,6 +1,6 @@
 diff --git a/chrome/browser/browseros/onboarding/browseros_onboarding_prefs.h b/chrome/browser/browseros/onboarding/browseros_onboarding_prefs.h
 new file mode 100644
-index 0000000000000..5504cfea7ebd9
+index 0000000000000000000000000000000000000000..305109fa7ffe0451e6ab64e2b0fc83c5ee47c3d5
 --- /dev/null
 +++ b/chrome/browser/browseros/onboarding/browseros_onboarding_prefs.h
 @@ -0,0 +1,28 @@
@@ -15,7 +15,7 @@ index 0000000000000..5504cfea7ebd9
 +
 +namespace browseros::onboarding {
 +
-+// Returns whether BrowserOS onboarding should interrupt startup for `profile`.
++// Returns whether onboarding should interrupt startup for `profile`.
 +bool ShouldShow(Profile* profile);
 +
 +// Marks the BrowserOS onboarding popup complete for `profile`.

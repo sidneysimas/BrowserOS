@@ -40,10 +40,8 @@ const CDP_WAIT_TIMEOUT_MS = 30_000
 // runner can take much longer than the original 30s budget allowed.
 const SERVER_HEALTH_TIMEOUT_MS = 90_000
 
-// Where per-worker server stderr is written. Captured (rather than ignored)
-// so eval-weekly.yml can upload these as workflow artifacts on failure for
-// post-mortem debugging. Path is also referenced in the workflow's artifact
-// upload step.
+// Where per-worker server logs are written for post-mortem debugging by
+// external runners and local eval invocations.
 const SERVER_LOG_DIR =
   process.env.BROWSEROS_SERVER_LOG_DIR || '/tmp/browseros-server-logs'
 
@@ -220,11 +218,9 @@ export class BrowserOSAppManager {
       NODE_ENV: 'development',
     }
 
-    // Capture both stdout and stderr to a per-worker file so we can
-    // post-mortem startup hangs. The server uses pino which writes logs to
-    // stdout by default — capturing stderr alone misses everything. The
-    // eval-weekly workflow uploads /tmp/browseros-server-logs/ as a workflow
-    // artifact on failure.
+    // Capture both stdout and stderr to a per-worker file so startup hangs
+    // can be investigated post-mortem. The server uses pino which writes logs
+    // to stdout by default; capturing stderr alone misses everything.
     // Open the per-worker log file under SERVER_LOG_DIR. If the directory
     // can't be created or the file can't be opened (e.g. unwritable custom
     // BROWSEROS_SERVER_LOG_DIR), fall back to /dev/null so spawn still works.

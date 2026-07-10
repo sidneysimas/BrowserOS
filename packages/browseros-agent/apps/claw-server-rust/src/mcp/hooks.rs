@@ -1,6 +1,10 @@
 use crate::{
     app::AppState,
     domain::{AgentRef, ClientInfo, DispatchId, Session, SessionId, color_for_slug},
+    mcp::naming::{
+        build_session_group_title, client_prefix_from_slug, desired_group_title,
+        elicit_session_name, peer_elicit_session_name,
+    },
     services::{
         audit::{DispatchResultSummary, RecordToolDispatchInput},
         tab_activity::RecordToolInput,
@@ -15,13 +19,18 @@ use browseros_mcp::{
     BrowserToolDefaults, BrowserToolOptions, McpBeforeToolResult, McpClientInfo, McpHookError,
     McpHookResult, McpHooks, McpSessionClosed, McpSessionStarted, McpToolCall, McpToolTiming,
     OutputFileAccess, ToolCtx, ToolResult, catalog, execute_tool, extract_page_id, result_page_id,
+    output_file::create_browser_output_file_access,
 };
 use futures_util::future::BoxFuture;
-use rmcp::model::ContentBlock;
+use rmcp::{
+    RoleServer,
+    model::ContentBlock,
+    service::{ElicitationMode, Peer},
+};
 use serde_json::{Value, json};
 use std::{collections::BTreeSet, sync::Arc};
 use tokio_util::sync::CancellationToken;
-use tracing::{Instrument, info_span, warn};
+use tracing::{Instrument, debug, info_span, warn};
 
 const NAVIGATE_BLOCKED_SCHEMES: &[&str] = &["javascript", "file", "data"];
 
@@ -61,6 +70,9 @@ impl ClawMcpHooks {
             agent = %session.agent().agent_id(),
             "mcp session initialized"
         );
+        if let Some(peer) = event.peer {
+            SessionNamer::spawn(self.state.clone(), session, peer);
+        }
         Ok(())
     }
 
@@ -487,6 +499,103 @@ impl TabActivityTracker {
     }
 }
 
+/// Dispatches one `tab_groups` call through the shared tool framework,
+/// folding tool-missing, transport, and tool-error outcomes into Err(reason).
+async fn dispatch_tab_groups(
+    browser: &Arc<BrowserSession>,
+    cancel: CancellationToken,
+    output_files: OutputFileAccess,
+    args: Value,
+) -> Result<ToolResult, String> {
+    let Some(tab_groups) = catalog().into_iter().find(|tool| tool.name == "tab_groups") else {
+        return Err("tab_groups tool missing from catalog".to_string());
+    };
+    let tool_ctx = ToolCtx::new(BrowserToolOptions {
+        session: browser.clone(),
+        defaults: BrowserToolDefaults::default(),
+        cancel,
+        output_files,
+    });
+    match execute_tool(&tab_groups, args, &tool_ctx).await {
+        Ok(result) if !result.is_error => Ok(result),
+        Ok(result) => Err(first_text(&result)),
+        Err(err) => Err(err.to_string()),
+    }
+}
+
+struct SessionNamer;
+
+impl SessionNamer {
+    /// Fire-and-forget session-name elicitation; must never block or fail
+    /// initialize, so every failure path is a log line at most.
+    fn spawn(state: AppState, session: Arc<Session>, peer: Peer<RoleServer>) {
+        if !peer
+            .supported_elicitation_modes()
+            .contains(&ElicitationMode::Form)
+        {
+            return;
+        }
+        tokio::spawn(async move {
+            Self::run(state, session, peer).await;
+        });
+    }
+
+    async fn run(state: AppState, session: Arc<Session>, peer: Peer<RoleServer>) {
+        let prefix = client_prefix_from_slug(session.agent().slug()).to_string();
+        // Session teardown cancels the elicitation so an abandoned prompt
+        // does not park this task (and the peer handle) for the full 120s.
+        let name = tokio::select! {
+            name = elicit_session_name(|| peer_elicit_session_name(&peer, &prefix)) => name,
+            () = session.child_token().cancelled_owned() => {
+                debug!(session_id = %session.id(), "session closed during naming elicitation");
+                return;
+            }
+        };
+        let Some(name) = name else {
+            return;
+        };
+        // The idle sweeper may have torn the session down mid-elicitation.
+        if state.sessions.lookup(session.id()).await.is_none() {
+            debug!(session_id = %session.id(), "session closed before naming applied");
+            return;
+        }
+        session.set_session_label(name.clone()).await;
+        let title = build_session_group_title(&prefix, &name);
+        tracing::info!(session_id = %session.id(), title = %title, "mcp session named");
+        Self::retitle_existing_group(&state, &session, &title).await;
+    }
+
+    /// Late-name path: the tab group already exists, so push the new title.
+    /// When no group exists yet, the create path reads the label instead.
+    async fn retitle_existing_group(state: &AppState, session: &Arc<Session>, title: &str) {
+        let Some(group_id) = state
+            .sessions
+            .ownership()
+            .tab_group_ref(&session.agent().ownership_key())
+            .await
+        else {
+            return;
+        };
+        let Some(browser) = state.browser.session().await else {
+            return;
+        };
+        if let Err(reason) = dispatch_tab_groups(
+            &browser,
+            session.child_token(),
+            create_browser_output_file_access(),
+            json!({ "action": "update", "groupId": group_id, "title": title }),
+        )
+        .await
+        {
+            warn!(
+                session_id = %session.id(),
+                error = %reason,
+                "session name tab group retitle failed"
+            );
+        }
+    }
+}
+
 struct TabGroupOrchestrator;
 
 impl TabGroupOrchestrator {
@@ -506,79 +615,91 @@ impl TabGroupOrchestrator {
         let Some(page_id) = result_page_id(result) else {
             return;
         };
-        let Some(tab_groups) = catalog().into_iter().find(|tool| tool.name == "tab_groups") else {
-            warn!("tab_groups tool missing from catalog");
-            return;
-        };
         let ownership = state.sessions.ownership();
         let agent_key = session.agent().ownership_key();
         let group_id = ownership.tab_group_ref(&agent_key).await;
-        let created_new_group = group_id.is_none();
         let color = ownership
             .tab_group_color(&agent_key)
             .await
             .unwrap_or_else(|| color_for_slug(session.agent().slug()));
-        let args = if let Some(group_id) = group_id {
-            json!({ "action": "create", "groupId": group_id, "pages": [page_id] })
+        // creation_title is Some only when this call creates the group.
+        let (args, creation_title) = if let Some(group_id) = group_id {
+            (
+                json!({ "action": "create", "groupId": group_id, "pages": [page_id] }),
+                None,
+            )
         } else {
-            json!({
-                "action": "create",
-                "pages": [page_id],
-                "title": session.agent().slug()
-            })
+            let title = desired_group_title(session).await;
+            (
+                json!({ "action": "create", "pages": [page_id], "title": title }),
+                Some(title),
+            )
         };
-        let tool_ctx = ToolCtx::new(BrowserToolOptions {
-            session: browser.clone(),
-            defaults: BrowserToolDefaults::default(),
-            cancel: call.cancel.clone(),
-            output_files,
-        });
-        match execute_tool(&tab_groups, args, &tool_ctx).await {
-            Ok(group_result) if !group_result.is_error => {
-                if let Some(group_id) = group_result
-                    .structured_content
-                    .as_ref()
-                    .and_then(|value| value.get("group"))
-                    .and_then(|value| value.get("groupId"))
-                    .and_then(Value::as_str)
-                    .map(str::to_string)
-                {
-                    ownership
-                        .set_tab_group(agent_key, Some(group_id.clone()), Some(color))
-                        .await;
-                    if created_new_group {
-                        match execute_tool(
-                            &tab_groups,
-                            json!({ "action": "update", "groupId": group_id, "color": color }),
-                            &tool_ctx,
-                        )
-                        .await
-                        {
-                            Ok(result) if !result.is_error => {}
-                            Ok(result) => warn!(
-                                dispatch_id = %call.dispatch_id,
-                                group_color = %color,
-                                error = first_text(&result),
-                                "tab group color lock returned error"
-                            ),
-                            Err(err) => warn!(
-                                error = %err,
-                                dispatch_id = %call.dispatch_id,
-                                group_color = %color,
-                                "tab group color lock failed"
-                            ),
-                        }
-                    }
+        let group_result =
+            match dispatch_tab_groups(browser, call.cancel.clone(), output_files.clone(), args)
+                .await
+            {
+                Ok(result) => result,
+                Err(reason) => {
+                    warn!(
+                        dispatch_id = %call.dispatch_id,
+                        error = %reason,
+                        "tab group orchestration failed"
+                    );
+                    return;
                 }
-            }
-            Ok(group_result) => warn!(
+            };
+        let Some(group_id) = group_result
+            .structured_content
+            .as_ref()
+            .and_then(|value| value.get("group"))
+            .and_then(|value| value.get("groupId"))
+            .and_then(Value::as_str)
+            .map(str::to_string)
+        else {
+            return;
+        };
+        ownership
+            .set_tab_group(agent_key, Some(group_id.clone()), Some(color))
+            .await;
+        let Some(creation_title) = creation_title else {
+            return;
+        };
+        // Lock the colour separately: `tab_groups create` does not accept a
+        // colour today; update does. A failure leaves the default colour.
+        if let Err(reason) = dispatch_tab_groups(
+            browser,
+            call.cancel.clone(),
+            output_files.clone(),
+            json!({ "action": "update", "groupId": group_id, "color": color }),
+        )
+        .await
+        {
+            warn!(
                 dispatch_id = %call.dispatch_id,
-                error = first_text(&group_result),
-                "tab group orchestration returned error"
-            ),
-            Err(err) => {
-                warn!(error = %err, dispatch_id = %call.dispatch_id, "tab group orchestration failed")
-            }
+                group_color = %color,
+                error = %reason,
+                "tab group color lock failed"
+            );
+        }
+        // Dedicated late-title apply, independent of the color lock: a label
+        // that landed while the create was in flight must not be lost to a
+        // color failure (mirrors the TS applyAgentTabGroupTitle update).
+        let desired_title = desired_group_title(session).await;
+        if desired_title != creation_title
+            && let Err(reason) = dispatch_tab_groups(
+                browser,
+                call.cancel.clone(),
+                output_files,
+                json!({ "action": "update", "groupId": group_id, "title": desired_title }),
+            )
+            .await
+        {
+            warn!(
+                dispatch_id = %call.dispatch_id,
+                error = %reason,
+                "tab group late title apply failed"
+            );
         }
     }
 }

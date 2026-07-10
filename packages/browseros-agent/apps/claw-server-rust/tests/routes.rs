@@ -479,6 +479,54 @@ async fn mcp_initialize_list_guard_audit_and_delete() -> anyhow::Result<()> {
 }
 
 #[tokio::test]
+async fn mcp_initialize_with_elicitation_capability_stays_nonblocking() -> anyhow::Result<()> {
+    let app = test_app().await?;
+    let initialize = json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "initialize",
+        "params": {
+            "protocolVersion": "2025-06-18",
+            "capabilities": { "elicitation": {} },
+            "clientInfo": { "name": "Claude Code", "version": "1.0" }
+        }
+    });
+    let (status, headers, body) =
+        request_json_with_headers(&app.router, "POST", "/mcp", Some(initialize), &[]).await?;
+    assert_eq!(status, StatusCode::OK, "initialize body: {body:?}");
+    let session_id = headers
+        .get("mcp-session-id")
+        .and_then(|value| value.to_str().ok())
+        .ok_or_else(|| anyhow::anyhow!("missing mcp-session-id"))?
+        .to_string();
+    send_initialized(&app.router, &session_id).await?;
+
+    // The naming task fires in the background; the handshake and tool
+    // surface must stay responsive regardless of the pending elicitation.
+    let list = json!({ "jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {} });
+    let (status, _headers, body) = request_json_with_headers(
+        &app.router,
+        "POST",
+        "/mcp",
+        Some(list),
+        &[("mcp-session-id", &session_id)],
+    )
+    .await?;
+    assert_eq!(status, StatusCode::OK);
+    assert!(body["result"]["tools"].as_array().is_some_and(|tools| !tools.is_empty()));
+
+    wait_for_session_registration(&app, &session_id).await?;
+    let session = app
+        .state
+        .sessions
+        .lookup(&SessionId::new(session_id.clone()))
+        .await
+        .ok_or_else(|| anyhow::anyhow!("session not minted"))?;
+    assert_eq!(session.session_label().await, None);
+    Ok(())
+}
+
+#[tokio::test]
 async fn mcp_tabs_new_roundtrips_through_mock_cdp() -> anyhow::Result<()> {
     let mock = MockCdp::start().await?;
     let app = test_app_with_cdp_port(mock.cdp_port, false).await?;

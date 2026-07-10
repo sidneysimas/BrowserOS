@@ -29,12 +29,11 @@
  */
 
 import { rename } from 'node:fs/promises'
-import type { AgentId, BoundApi, McpServerSpec } from 'agent-mcp-manager'
+import type { BoundApi, McpServerSpec } from 'agent-mcp-manager'
 import {
   type StoredAgentProfile,
   storedAgentProfileSchema,
 } from '../routes/agents/schemas'
-import { tagClaudeCodeHttpEntry } from '../services/mcp-relink'
 import { resolveClawServerPath } from './browserclaw-dir'
 import { logger } from './logger'
 import { getMcpManager } from './mcp-manager'
@@ -137,17 +136,17 @@ async function relinkOne(
   mgr: BoundApi,
   serverName: string,
   nextSpec: McpServerSpec,
-  agent: AgentId,
+  agent: string,
   fromUrl: string,
   toUrl: string,
 ): Promise<boolean> {
   try {
     await mgr.link({
       server: { name: serverName, spec: nextSpec },
-      agent,
+      // biome-ignore lint/suspicious/noExplicitAny: agent is a manifest AgentId key threaded through opaque catalog types
+      agent: agent as any,
       allowOverwrite: true,
     })
-    await tagClaudeCodeHttpEntry(mgr, agent, nextSpec, serverName)
     logger.info('mcpUrl migration: relinked', {
       serverName,
       agent,

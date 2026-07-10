@@ -46,66 +46,6 @@ describe('migrateMcpUrls', () => {
     })
   })
 
-  test('keeps the Claude Code HTTP type when migrating the managed URL', async () => {
-    await withTempBrowserClawDir(async (root) => {
-      const configPath = join(root, '.claude.json')
-      const oldUrl = 'http://127.0.0.1:8080/mcp'
-      const newUrl = 'http://127.0.0.1:9200/mcp'
-      const originalConfig = {
-        theme: 'dark',
-        mcpServers: {
-          context7: { type: 'stdio', command: 'npx' },
-        },
-      }
-      await writeFile(
-        configPath,
-        `${JSON.stringify(originalConfig, null, 2)}\n`,
-        'utf8',
-      )
-
-      const stub = createStubMcpManager()
-      const originalLink = stub.link
-      stub.link = async (input) => {
-        const result = await originalLink({ ...input, configPath })
-        if (input.server.spec.transport !== 'http') {
-          throw new Error('expected an HTTP BrowserClaw spec')
-        }
-        const config = JSON.parse(await readFile(configPath, 'utf8')) as {
-          theme: string
-          mcpServers: Record<string, unknown>
-        }
-        config.mcpServers[input.server.name] = {
-          url: input.server.spec.url,
-        }
-        await writeFile(
-          configPath,
-          `${JSON.stringify(config, null, 2)}\n`,
-          'utf8',
-        )
-        return result
-      }
-      await stub.link({
-        server: {
-          name: 'BrowserClaw',
-          spec: { transport: 'http', url: oldUrl },
-        },
-        agent: 'claude-code',
-      })
-      setMcpManagerForTesting(stub)
-      stub.reset()
-
-      await migrateMcpUrls(newUrl)
-
-      expect(JSON.parse(await readFile(configPath, 'utf8'))).toEqual({
-        ...originalConfig,
-        mcpServers: {
-          ...originalConfig.mcpServers,
-          BrowserClaw: { url: newUrl, type: 'http' },
-        },
-      })
-    })
-  })
-
   test('skips a server whose spec URL already matches the target', async () => {
     await withTempBrowserClawDir(async () => {
       const stub = createStubMcpManager()

@@ -21,7 +21,6 @@
 
 import { logger } from '../lib/logger'
 import { getMcpManager } from '../lib/mcp-manager'
-import { tagClaudeCodeHttpEntry } from './mcp-relink'
 
 export interface IntegrityScanOutcome {
   verified: number
@@ -59,7 +58,6 @@ export async function runIntegrityScan(): Promise<IntegrityScanOutcome> {
         scope: entry.scope,
         allowOverwrite: true,
       })
-      await tagClaudeCodeHttpEntry(mgr, entry.agent, spec, entry.serverName)
       healed++
       logger.info('integrity scan: healed drifted entry', {
         serverName: entry.serverName,

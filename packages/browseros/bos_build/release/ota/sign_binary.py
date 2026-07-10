@@ -10,6 +10,7 @@ from typing import List, Optional
 
 from ...lib.env import EnvConfig
 from ...products.server_binaries import (
+    ServerBundle,
     expected_windows_binary_paths,
     macos_sign_spec_for,
 )
@@ -406,18 +407,23 @@ def sign_server_bundle_macos(
     return True
 
 
-def sign_server_bundle_windows(resources_dir: Path, env: EnvConfig) -> bool:
-    """Sign each Windows binary enumerated in ``WINDOWS_SERVER_BINARIES``.
+def sign_server_bundle_windows(
+    resources_dir: Path, env: EnvConfig, bundle: ServerBundle
+) -> bool:
+    """Sign each Windows binary declared by a server bundle.
 
     A missing expected binary is a hard error: publishing an incomplete
     Windows bundle would ship a broken OTA update without a pipeline signal.
     Symmetric with the macOS bundle's unknown-file guard.
     """
     bin_dir = resources_dir / "bin"
-    for path in expected_windows_binary_paths(bin_dir):
+    paths = expected_windows_binary_paths(bin_dir, bundle)
+    for path in paths:
         if not path.exists():
             log_error(f"Windows binary missing (cannot sign): {path}")
             return False
+
+    for path in paths:
         if not sign_windows_binary(path, env):
             return False
     return True

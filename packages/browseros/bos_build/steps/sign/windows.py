@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Windows signing module for BrowserOS"""
 
+import os
+import shutil
 import subprocess
 from pathlib import Path
 from typing import List, Optional
@@ -47,7 +49,9 @@ class WindowsSignModule(Step):
 
         build_output_dir = join_paths(ctx.chromium_src, ctx.out_dir)
         if not build_output_dir.exists():
-            raise ValidationError(f"Build output directory not found: {build_output_dir}")
+            raise ValidationError(
+                f"Build output directory not found: {build_output_dir}"
+            )
 
         env = ctx.env
         if not env.code_sign_tool_path:
@@ -62,7 +66,11 @@ class WindowsSignModule(Step):
             missing.append("ESIGNER_TOTP_SECRET")
 
         if missing:
-            raise ValidationError(f"Missing environment variables: {', '.join(missing)}")
+            raise ValidationError(
+                f"Missing environment variables: {', '.join(missing)}"
+            )
+
+        _warn_about_suspicious_esigner_values(env)
 
     def execute(self, ctx: Context) -> None:
         log_info("\n🔏 Signing Windows binaries...")
@@ -111,7 +119,9 @@ class WindowsSignModule(Step):
         log_info("\nStep 3/3: Signing mini_installer.exe...")
         mini_installer_path = build_output_dir / "mini_installer.exe"
         if not mini_installer_path.exists():
-            raise RuntimeError(f"mini_installer.exe not found at: {mini_installer_path}")
+            raise RuntimeError(
+                f"mini_installer.exe not found at: {mini_installer_path}"
+            )
 
         if not sign_with_codesigntool([mini_installer_path], env):
             raise RuntimeError("Failed to sign mini_installer.exe")
@@ -146,9 +156,7 @@ def get_missing_required_browseros_server_binary_paths(
     """Return missing bundled server binaries that should already be packaged."""
     missing: List[Path] = []
     bundles = (
-        server_bundles_for_product(product_id)
-        if product_id
-        else all_server_bundles()
+        server_bundles_for_product(product_id) if product_id else all_server_bundles()
     )
     for bundle in bundles:
         bundle_root = build_output_dir / bundle.windows_bundle_resources_root
@@ -174,6 +182,76 @@ def build_mini_installer(ctx: Context) -> bool:
     return build_target(ctx, "mini_installer")
 
 
+def _legacy_codesigntool_path(env: EnvConfig) -> Optional[Path]:
+    """Return the configured legacy CodeSignTool launcher path."""
+    if env.code_sign_tool_exe:
+        return Path(env.code_sign_tool_exe)
+    if env.code_sign_tool_path:
+        return Path(env.code_sign_tool_path) / "CodeSignTool.bat"
+    return None
+
+
+def _resolve_codesigntool_java_invocation(
+    env: EnvConfig,
+) -> Optional[tuple[list[str], Path]]:
+    """Resolve SSL.com CodeSignTool to its bundled Java and jar invocation."""
+    if env.code_sign_tool_exe:
+        tool_root = Path(env.code_sign_tool_exe).parent
+    elif env.code_sign_tool_path:
+        tool_root = Path(env.code_sign_tool_path)
+    else:
+        return None
+
+    jars = sorted(
+        (tool_root / "jar").glob("code_sign_tool*.jar"),
+        key=lambda path: path.name,
+    )
+    if not jars:
+        return None
+    jar = jars[-1]
+
+    java_candidates = []
+    for name in ("java.exe", "java"):
+        java_candidates.extend(sorted(tool_root.glob(f"jdk-*/bin/{name}")))
+
+    java_home = os.environ.get("JAVA_HOME")
+    if java_home:
+        java_home_path = Path(java_home)
+        java_candidates.extend(
+            [
+                java_home_path / "bin" / "java.exe",
+                java_home_path / "bin" / "java",
+            ]
+        )
+
+    java_from_path = shutil.which("java")
+    if java_from_path:
+        java_candidates.append(Path(java_from_path))
+
+    java = next(
+        (candidate for candidate in java_candidates if candidate.exists()), None
+    )
+    if java is None:
+        return None
+
+    return ([str(java), "-jar", str(jar)], tool_root)
+
+
+def _warn_about_suspicious_esigner_values(env: EnvConfig) -> None:
+    """Warn when eSigner env values look copied with shell-only decoration."""
+    for name, value in (
+        ("ESIGNER_USERNAME", env.esigner_username),
+        ("ESIGNER_PASSWORD", env.esigner_password),
+        ("ESIGNER_TOTP_SECRET", env.esigner_totp_secret),
+    ):
+        if not value:
+            continue
+        if value != value.strip():
+            log_warning(f"{name} has leading or trailing whitespace")
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
+            log_warning(f"{name} appears to include wrapping quote characters")
+
+
 def sign_with_codesigntool(
     binaries: List[Path],
     env: Optional[EnvConfig] = None,
@@ -189,20 +267,20 @@ def sign_with_codesigntool(
     if env is None:
         env = EnvConfig()
 
-    # Prefer CODE_SIGN_TOOL_EXE (direct path to executable), fall back to CODE_SIGN_TOOL_PATH + .bat
-    if env.code_sign_tool_exe:
-        codesigntool_path = Path(env.code_sign_tool_exe)
-    elif env.code_sign_tool_path:
-        codesigntool_path = Path(env.code_sign_tool_path) / "CodeSignTool.bat"
-    else:
+    direct_invocation = _resolve_codesigntool_java_invocation(env)
+    codesigntool_path = _legacy_codesigntool_path(env)
+
+    if direct_invocation is None and codesigntool_path is None:
         log_error("CODE_SIGN_TOOL_EXE or CODE_SIGN_TOOL_PATH not set in .env file")
         log_error("Set CODE_SIGN_TOOL_EXE=/path/to/CodeSignTool.sh (macOS/Linux)")
         log_error("Or CODE_SIGN_TOOL_PATH=C:/src/CodeSignTool-v1.3.2-windows (Windows)")
         return False
 
-    if not codesigntool_path.exists():
-        log_error(f"CodeSignTool not found at: {codesigntool_path}")
-        return False
+    if direct_invocation is None:
+        assert codesigntool_path is not None
+        if not codesigntool_path.exists():
+            log_error(f"CodeSignTool not found at: {codesigntool_path}")
+            return False
 
     if not all([env.esigner_username, env.esigner_password, env.esigner_totp_secret]):
         log_error("Missing required eSigner environment variables in .env:")
@@ -213,6 +291,13 @@ def sign_with_codesigntool(
             log_warning("  ESIGNER_CREDENTIAL_ID is recommended but optional")
         return False
 
+    if direct_invocation is None:
+        log_warning(
+            "Could not resolve CodeSignTool Java and jar; falling back to "
+            "CodeSignTool.bat via cmd.exe. Passwords containing cmd.exe "
+            "metacharacters may be mangled."
+        )
+
     all_success = True
     for binary in binaries:
         secret_values: tuple[str, ...] = ()
@@ -222,19 +307,31 @@ def sign_with_codesigntool(
             temp_output_dir = binary.parent / "signed_temp"
             temp_output_dir.mkdir(exist_ok=True)
 
-            # Proven invocation shape: shell string with the password
-            # explicitly quote-wrapped. The argv+`cmd /c` form (#1758)
-            # regressed signing on the working machine — cmd.exe does not
-            # honor MSVCRT list quoting, so unquoted metacharacters in the
-            # rotated password were mangled before reaching SSL.com.
-            cmd = [
-                str(codesigntool_path),
-                "sign",
-                "-username",
-                env.esigner_username,
-                "-password",
-                f'"{env.esigner_password}"',
-            ]
+            if direct_invocation is not None:
+                cmd_prefix, tool_root = direct_invocation
+                cmd = [
+                    *cmd_prefix,
+                    "sign",
+                    "-username",
+                    env.esigner_username,
+                    "-password",
+                    env.esigner_password,
+                ]
+            else:
+                assert codesigntool_path is not None
+                tool_root = codesigntool_path.parent
+                # Direct Java is the invariant: credentials must never pass
+                # through cmd.exe parsing. This fallback preserves the
+                # previous working shape only for unexpected layouts; .bat
+                # dispatch reparses %*.
+                cmd = [
+                    str(codesigntool_path),
+                    "sign",
+                    "-username",
+                    env.esigner_username,
+                    "-password",
+                    f'"{env.esigner_password}"',
+                ]
 
             if env.esigner_credential_id:
                 cmd.extend(["-credential_id", env.esigner_credential_id])
@@ -254,14 +351,24 @@ def sign_with_codesigntool(
             secret_values = get_command_secret_values(cmd)
             log_info(f"Running: {redact_command(cmd)}")
 
-            cmd_str = " ".join(cmd)
-            result = subprocess.run(
-                cmd_str,
-                shell=True,
-                capture_output=True,
-                text=True,
-                cwd=str(codesigntool_path.parent),
-            )
+            if direct_invocation is not None:
+                result = subprocess.run(
+                    cmd,
+                    shell=False,
+                    capture_output=True,
+                    text=True,
+                    cwd=str(tool_root),
+                    env={**os.environ, "CODE_SIGN_TOOL_PATH": str(tool_root)},
+                )
+            else:
+                cmd_str = " ".join(cmd)
+                result = subprocess.run(
+                    cmd_str,
+                    shell=True,
+                    capture_output=True,
+                    text=True,
+                    cwd=str(tool_root),
+                )
 
             if result.stdout:
                 for line in result.stdout.split("\n"):
@@ -272,7 +379,9 @@ def sign_with_codesigntool(
                     if line.strip() and "WARNING" not in line:
                         log_error(redact_sensitive_text(line.strip(), secret_values))
 
-            if result.stdout and "Error:" in result.stdout:
+            if getattr(result, "returncode", 0) != 0 or (
+                result.stdout and "Error:" in result.stdout
+            ):
                 log_error(
                     f"✗ Failed to sign {binary.name} - Authentication or signing error"
                 )
@@ -281,7 +390,6 @@ def sign_with_codesigntool(
 
             signed_file = temp_output_dir / binary.name
             if signed_file.exists():
-                import shutil
                 shutil.move(str(signed_file), str(binary))
                 log_info(f"Moved signed {binary.name} to original location")
 
@@ -290,10 +398,11 @@ def sign_with_codesigntool(
             except Exception:
                 pass
 
+            escaped_binary_path = str(binary).replace("'", "''")
             verify_cmd = [
                 "powershell",
                 "-Command",
-                f"(Get-AuthenticodeSignature '{binary}').Status",
+                f"(Get-AuthenticodeSignature -LiteralPath '{escaped_binary_path}').Status",
             ]
             try:
                 verify_result = subprocess.run(
@@ -341,5 +450,7 @@ def check_signing_environment(env: Optional[EnvConfig] = None) -> bool:
     if missing:
         log_error(f"Missing environment variables: {', '.join(missing)}")
         return False
+
+    _warn_about_suspicious_esigner_values(env)
 
     return True

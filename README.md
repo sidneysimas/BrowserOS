@@ -207,7 +207,7 @@ Copyright &copy; 2026 Felafax, Inc.
 
 Thank you to all our supporters!
 
-[![Star History Chart](https://api.star-history.com/svg?repos=browseros-ai/BrowserOS&type=Date)](https://www.star-history.com/#browseros-ai/BrowserOS&Date)
+<!-- [![Star History Chart](https://api.star-history.com/svg?repos=browseros-ai/BrowserOS&type=Date)](https://www.star-history.com/#browseros-ai/BrowserOS&Date) -->
 
 Founders — [@nv_sonti](https://x.com/intent/user?screen_name=nv_sonti) and [@ThatNithin](https://x.com/intent/user?screen_name=ThatNithin):
 

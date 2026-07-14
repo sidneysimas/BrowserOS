@@ -21,7 +21,11 @@ export const tabs = defineTool({
       .describe('Create in a hidden window for action="new".'),
     page: z.number().int().optional().describe('Page id for action="close".'),
   }),
-  annotations: { openWorldHint: true },
+  annotations: {
+    title: 'Manage tabs',
+    destructiveHint: true,
+    openWorldHint: true,
+  },
   handler: async (args, ctx) => {
     switch (args.action) {
       case 'list': {

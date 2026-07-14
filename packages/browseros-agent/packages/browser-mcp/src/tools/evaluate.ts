@@ -24,7 +24,11 @@ export const evaluate = defineTool({
       .optional()
       .describe('Max evaluation time in ms (default 30000).'),
   }),
-  annotations: { openWorldHint: true },
+  annotations: {
+    title: 'Run JavaScript in page',
+    destructiveHint: true,
+    openWorldHint: true,
+  },
   handler: async (args, ctx) => {
     const { session } = await ctx.session.pages.getSession(args.page)
     const timeout = clampTimeout(

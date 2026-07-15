@@ -1,35 +1,38 @@
-import { describe, expect, it } from 'bun:test'
-import type { ClientIdentity } from '../../src/lib/mcp-session'
-import type { ToolCall, ToolEffect } from '../../src/mcp/dispatch'
-import { createSessionNamingEffect } from '../../src/mcp/effects/session-naming'
+import { beforeEach, describe, expect, it } from 'bun:test'
+import {
+  buildSessionGroupTitle,
+  type ClientIdentity,
+  clientPrefixFromSlug,
+  identityService,
+} from '../../src/lib/mcp-session'
+import type { ToolCall } from '../../src/mcp/dispatch'
+import { applySessionNaming } from '../../src/mcp/effects/session-naming'
 import type { ToolResult } from '../../src/mcp/register-fn'
 
-const tip =
-  'Tip: this session is "claude/swift-otter" — rename it with name_session name="<2-3 word task label>"'
-
-function identity(label = 'swift-otter'): ClientIdentity {
-  return {
-    sessionId: 's1',
-    clientName: 'Claude Code',
-    clientVersion: '1.0.0',
-    clientTitle: null,
-    slug: 'claude-code',
-    key: 'claude-code-swift-otter' as never,
-    generatedLabel: 'swift-otter',
-    label,
-    firstSeenAt: 0,
-  }
+function register(sessionId: string): ClientIdentity {
+  return identityService.registerInitialize({
+    sessionId,
+    clientInfo: { name: 'Claude Code', version: '1.0.0' },
+  })
 }
 
-function call(value: ClientIdentity, toolName = 'snapshot'): ToolCall {
+function tipFor(identity: ClientIdentity): string {
+  const title = buildSessionGroupTitle(
+    clientPrefixFromSlug(identity.slug),
+    identity.label,
+  )
+  return `Tip: this session is "${title}" — rename it with name_session name="<2-3 word task label>"`
+}
+
+function call(identity: ClientIdentity, toolName = 'snapshot'): ToolCall {
   return {
     tool: { name: toolName } as never,
     args: {},
-    sessionId: value.sessionId,
-    identity: value,
-    key: value.key,
-    agent: { agentId: value.key, slug: value.slug },
-    agentLabel: value.clientName,
+    sessionId: identity.sessionId,
+    identity,
+    key: identity.key,
+    agent: { agentId: identity.key, slug: identity.slug },
+    agentLabel: identity.clientName,
     session: {} as never,
     defaultTabGroupId: null,
     flags: { newPage: false, closePage: false, listTabs: false },
@@ -42,84 +45,106 @@ const ok: ToolResult = {
 }
 
 function apply(
-  effect: ToolEffect,
   toolCall: ToolCall,
   result: ToolResult = ok,
 ): ToolResult | undefined {
-  return effect({ call: toolCall, result, cancelled: false, durationMs: 1 })
+  return applySessionNaming({
+    call: toolCall,
+    result,
+    cancelled: false,
+    durationMs: 1,
+  })
 }
 
 describe('session naming nudge', () => {
-  it('appends the prescribed tip to successive arbitrary tool results', () => {
-    const effect = createSessionNamingEffect()
-    const value = identity()
+  beforeEach(() => identityService.clear())
 
-    expect(apply(effect, call(value, 'snapshot'))?.content).toEqual([
-      { type: 'text', text: `tool result\n${tip}` },
+  it('appends the tip as a trailing text item on successive results', () => {
+    const value = register('s1')
+    const tip = tipFor(value)
+
+    expect(apply(call(value, 'snapshot'))?.content).toEqual([
+      { type: 'text', text: 'tool result' },
+      { type: 'text', text: tip },
     ])
-    expect(apply(effect, call(value, 'read'))?.content).toEqual([
-      { type: 'text', text: `tool result\n${tip}` },
+    expect(apply(call(value, 'read'))?.content).toEqual([
+      { type: 'text', text: 'tool result' },
+      { type: 'text', text: tip },
+    ])
+  })
+
+  it('appends the tip last without splicing into existing text items', () => {
+    const value = register('s1')
+    const multi: ToolResult = {
+      content: [
+        { type: 'text', text: 'first' },
+        { type: 'text', text: 'second' },
+      ],
+      isError: false,
+    }
+
+    expect(apply(call(value, 'read'), multi)?.content).toEqual([
+      { type: 'text', text: 'first' },
+      { type: 'text', text: 'second' },
+      { type: 'text', text: tipFor(value) },
     ])
   })
 
   it('appends exactly five nudges then stays silent', () => {
-    const effect = createSessionNamingEffect()
-    const toolCall = call(identity(), 'tabs')
+    const value = register('s1')
+    const toolCall = call(value, 'tabs')
 
     for (let index = 0; index < 5; index += 1) {
-      expect(apply(effect, toolCall)?.content[0]).toEqual({
-        type: 'text',
-        text: `tool result\n${tip}`,
-      })
+      expect(apply(toolCall)?.content).toEqual([
+        { type: 'text', text: 'tool result' },
+        { type: 'text', text: tipFor(value) },
+      ])
     }
-    expect(apply(effect, toolCall)).toBeUndefined()
+    expect(apply(toolCall)).toBeUndefined()
   })
 
   it('stops immediately after the session is renamed', () => {
-    const effect = createSessionNamingEffect()
-    const value = identity()
+    const value = register('s1')
 
-    expect(apply(effect, call(value))).toBeDefined()
-    value.label = 'invoice-processing'
-    expect(apply(effect, call(value))).toBeUndefined()
+    expect(apply(call(value))).toBeDefined()
+    identityService.setLabel('s1', 'invoice-processing')
+    expect(apply(call(value))).toBeUndefined()
   })
 
   it('skips errors and name_session without consuming nudges', () => {
-    const effect = createSessionNamingEffect()
-    const value = identity()
+    const value = register('s1')
     const toolCall = call(value)
 
-    expect(apply(effect, toolCall, { ...ok, isError: true })).toBeUndefined()
-    expect(apply(effect, call(value, 'name_session'))).toBeUndefined()
+    expect(apply(toolCall, { ...ok, isError: true })).toBeUndefined()
+    expect(apply(call(value, 'name_session'))).toBeUndefined()
 
     for (let index = 0; index < 5; index += 1) {
-      expect(apply(effect, toolCall)).toBeDefined()
+      expect(apply(toolCall)).toBeDefined()
     }
-    expect(apply(effect, toolCall)).toBeUndefined()
+    expect(apply(toolCall)).toBeUndefined()
   })
 
-  it('pushes the tip when the result has no text item', () => {
-    const effect = createSessionNamingEffect()
+  it('appends the tip after image content when no text item exists', () => {
+    const value = register('s1')
     const image = { type: 'image' as const, data: 'AAA', mimeType: 'image/png' }
 
     expect(
-      apply(effect, call(identity(), 'screenshot'), {
+      apply(call(value, 'screenshot'), {
         content: [image],
         isError: false,
       })?.content,
-    ).toEqual([image, { type: 'text', text: tip }])
+    ).toEqual([image, { type: 'text', text: tipFor(value) }])
   })
 
-  it('keeps independent counters for separate effect instances', () => {
-    const first = createSessionNamingEffect()
-    const second = createSessionNamingEffect()
-    const toolCall = call(identity())
+  it('keeps independent counters for separate sessions', () => {
+    const first = register('s1')
+    const second = register('s2')
 
     for (let index = 0; index < 5; index += 1) {
-      expect(apply(first, toolCall)).toBeDefined()
-      expect(apply(second, toolCall)).toBeDefined()
+      expect(apply(call(first))).toBeDefined()
+      expect(apply(call(second))).toBeDefined()
     }
-    expect(apply(first, toolCall)).toBeUndefined()
-    expect(apply(second, toolCall)).toBeUndefined()
+    expect(apply(call(first))).toBeUndefined()
+    expect(apply(call(second))).toBeUndefined()
   })
 })

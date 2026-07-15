@@ -38,7 +38,7 @@ import { cancellationErrorResult } from './cancellation-result'
 import { composeAbortSignals, dispatchErrorText } from './dispatch-util'
 import { applyAudit } from './effects/audit'
 import { applyOwnershipClaims } from './effects/ownership-claims'
-import { createSessionNamingEffect } from './effects/session-naming'
+import { applySessionNaming } from './effects/session-naming'
 import { applyTabActivity } from './effects/tab-activity'
 import { applyAgentTabGroupTitle, applyTabGroups } from './effects/tab-groups'
 import { applyTabsListView } from './effects/tabs-list-view'
@@ -91,6 +91,9 @@ const BASE_EFFECTS: readonly NamedToolEffect[] = [
   { name: 'audit', run: applyAudit },
   { name: 'tab-activity', run: applyTabActivity },
   { name: 'tab-groups', run: applyTabGroups },
+  // Must stay last: tabs-list-view rewrites result content wholesale, so a
+  // nudge appended before it would be clobbered.
+  { name: 'session-naming', run: applySessionNaming },
 ]
 
 /** Returns the first guard rejection in pipeline order. */
@@ -133,13 +136,6 @@ export function registerBrowserToolsForSingleServer(
   resolveIdentity: (sessionId: string | undefined) => ClientIdentity | null,
 ): void {
   const register = asRegister(server)
-  const effects: readonly NamedToolEffect[] = [
-    ...BASE_EFFECTS,
-    {
-      name: 'session-naming',
-      run: createSessionNamingEffect(),
-    },
-  ]
   for (const tool of BROWSER_TOOLS) {
     register(
       tool.name,
@@ -152,10 +148,7 @@ export function registerBrowserToolsForSingleServer(
         }),
       },
       (args, extra) =>
-        dispatchToolCall(
-          buildToolCall(tool, args, extra, resolveIdentity),
-          effects,
-        ),
+        dispatchToolCall(buildToolCall(tool, args, extra, resolveIdentity)),
     )
   }
   register(
@@ -245,10 +238,7 @@ function buildToolCall(
   }
 }
 
-async function dispatchToolCall(
-  call: ToolCall,
-  effects: readonly NamedToolEffect[],
-): Promise<ToolResult> {
+async function dispatchToolCall(call: ToolCall): Promise<ToolResult> {
   const rejection = runGuards(call)
   if (rejection) return wireResult(rejection)
   const connectedCall = call as ConnectedToolCall
@@ -269,7 +259,7 @@ async function dispatchToolCall(
       error: dispatchErrorText(outcome.result.content),
     })
   }
-  const result = runEffects({ call, ...outcome }, effects)
+  const result = runEffects({ call, ...outcome })
   return wireResult(result)
 }
 

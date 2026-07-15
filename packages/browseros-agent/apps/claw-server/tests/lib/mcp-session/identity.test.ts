@@ -141,6 +141,46 @@ describe('IdentityService', () => {
     expect(svc.size()).toBe(0)
   })
 
+  it('starts fresh sessions with the full rename-nudge budget', () => {
+    const svc = setup()
+    const record = svc.registerInitialize({
+      sessionId: 's1',
+      clientInfo: { name: 'Claude Code' },
+    })
+    expect(record.renameNudgesLeft).toBe(5)
+  })
+
+  it('grants five rename nudges then refuses', () => {
+    const svc = setup()
+    svc.registerInitialize({
+      sessionId: 's1',
+      clientInfo: { name: 'Claude Code' },
+    })
+
+    for (let index = 0; index < 5; index += 1) {
+      expect(svc.takeRenameNudge('s1')).toBe(true)
+    }
+    expect(svc.takeRenameNudge('s1')).toBe(false)
+    expect(svc.getIdentity('s1')?.renameNudgesLeft).toBe(0)
+  })
+
+  it('refuses rename nudges once the label diverges from the generated one', () => {
+    const svc = setup()
+    svc.registerInitialize({
+      sessionId: 's1',
+      clientInfo: { name: 'Claude Code' },
+    })
+
+    svc.setLabel('s1', 'invoice-processing')
+    expect(svc.takeRenameNudge('s1')).toBe(false)
+  })
+
+  it('refuses rename nudges for unknown or unidentified sessions', () => {
+    const svc = setup()
+    expect(svc.takeRenameNudge('missing')).toBe(false)
+    expect(svc.takeRenameNudge('')).toBe(false)
+  })
+
   it('clear removes live identities and retained reservations', () => {
     const svc = setup()
     svc.registerInitialize({ sessionId: 's1', clientInfo: { name: 'a' } })

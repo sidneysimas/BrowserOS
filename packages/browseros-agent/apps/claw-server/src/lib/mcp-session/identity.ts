@@ -16,6 +16,7 @@ export interface ClientIdentity {
   key: AgentKey
   generatedLabel: string
   label: string
+  renameNudgesLeft: number
   firstSeenAt: number
 }
 
@@ -35,6 +36,7 @@ export interface IdentityService {
   }): ClientIdentity
   getIdentity(sessionId: string): ClientIdentity | null
   setLabel(sessionId: string, label: string): void
+  takeRenameNudge(sessionId: string): boolean
   endSession(sessionId: string): ClientIdentity | null
   list(): ClientIdentity[]
   listRetained(): RetainedIdentity[]
@@ -49,6 +51,7 @@ export interface IdentityServiceDeps {
 }
 
 const SLUG_MAX_LEN = 64
+const SESSION_NAME_NUDGE_LIMIT = 5
 
 export function createIdentityService(
   deps: IdentityServiceDeps = {},
@@ -85,6 +88,7 @@ export function createIdentityService(
         key: agentKeyFromSlug(`${slug}-${generatedLabel}`),
         generatedLabel,
         label: generatedLabel,
+        renameNudgesLeft: SESSION_NAME_NUDGE_LIMIT,
         firstSeenAt: now(),
       }
       records.set(input.sessionId, record)
@@ -96,6 +100,18 @@ export function createIdentityService(
     setLabel(sessionId, label) {
       const record = records.get(sessionId)
       if (record) record.label = label
+    },
+    takeRenameNudge(sessionId) {
+      const record = records.get(sessionId)
+      if (
+        !record ||
+        record.label !== record.generatedLabel ||
+        record.renameNudgesLeft === 0
+      ) {
+        return false
+      }
+      record.renameNudgesLeft -= 1
+      return true
     },
     endSession(sessionId) {
       const record = records.get(sessionId)

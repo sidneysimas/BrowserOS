@@ -114,13 +114,10 @@ function readRecordedSize(events: readonly ReplayEvent[]): {
 /** Mounts rrweb's imperative Replayer and exposes the narrow playback handle. */
 function PlayerCanvas({ events, onReady }: PlayerCanvasProps) {
   const mountRef = useRef<HTMLDivElement>(null)
-  const lastEventsRef = useRef<readonly ReplayEvent[] | null>(null)
   useEffect(() => {
     const mount = mountRef.current
     if (!mount) return
     if (events.length < 2) return
-    if (lastEventsRef.current === events) return
-    lastEventsRef.current = events
 
     const rrwebEvents = events.map((e) => ({
       type: e.type,

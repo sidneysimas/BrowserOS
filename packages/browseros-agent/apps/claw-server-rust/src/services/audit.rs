@@ -1,67 +1,34 @@
 use crate::{
+    db::audit::{
+        AuditDb,
+        entities::{
+            agent_session_ends, agent_session_starts,
+            prelude::{AgentSessionEnds, AgentSessionStarts, Tasks, ToolDispatches},
+            tasks, tool_dispatches,
+        },
+    },
     domain::DispatchId,
-    error::{AppError, AppResult, IoPath},
+    error::AppResult,
     services::now_epoch_ms,
 };
-use rusqlite::{Connection, OptionalExtension, params, types::Value};
-use rusqlite_migration::{M, Migrations};
+use sea_orm::{
+    ActiveValue::{NotSet, Set},
+    ColumnTrait, ConnectionTrait, EntityTrait, QueryFilter, QueryOrder, QuerySelect,
+    TransactionTrait,
+    sea_query::{Condition, Expr, ExprTrait, Func, OnConflict},
+};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use std::{
-    path::{Path, PathBuf},
-    sync::Arc,
-};
-use tokio::sync::Mutex;
+use std::path::Path;
 use url::Url;
 
-const AUDIT_0000: &str = include_str!("../../migrations/0000_add_tool_dispatches.sql");
-const AUDIT_0001: &str = include_str!("../../migrations/0001_add_agent_session_events.sql");
-const AUDIT_0002: &str = include_str!("../../migrations/0002_add_dispatch_columns.sql");
-const AUDIT_0003: &str = include_str!("../../migrations/0003_add_tasks_table.sql");
-const CURRENT_AUDIT_SCHEMA_VERSION: usize = 4;
+pub use crate::db::audit::entities::tool_dispatches::Model as ToolDispatchRow;
+
 const ARGS_JSON_MAX: usize = 4096;
-
-struct DrizzleCompatMigration {
-    tag: &'static str,
-    created_at: i64,
-}
-
-const DRIZZLE_COMPAT_MIGRATIONS: [DrizzleCompatMigration; 2] = [
-    DrizzleCompatMigration {
-        tag: "0000_add_tool_dispatches",
-        created_at: 1782320133071,
-    },
-    DrizzleCompatMigration {
-        tag: "0001_add_agent_session_events",
-        created_at: 1782387594647,
-    },
-];
 
 #[derive(Clone)]
 pub struct AuditService {
-    conn: Arc<Mutex<Connection>>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ToolDispatchRow {
-    pub id: i64,
-    pub created_at: i64,
-    pub agent_id: String,
-    pub slug: String,
-    pub agent_label: String,
-    pub session_id: String,
-    pub tool_name: String,
-    pub page_id: Option<i64>,
-    pub target_id: Option<String>,
-    pub url: Option<String>,
-    pub title: Option<String>,
-    pub args_json: Option<String>,
-    pub result_meta: Option<String>,
-    pub duration_ms: Option<i64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub dispatch_id: Option<String>,
-    pub has_screenshot: bool,
+    db: AuditDb,
 }
 
 #[derive(Debug, Clone)]
@@ -150,6 +117,31 @@ pub struct TaskSummary {
     pub has_screenshots: bool,
 }
 
+impl From<tasks::Model> for TaskSummary {
+    fn from(model: tasks::Model) -> Self {
+        let tool_sequence =
+            serde_json::from_str::<Vec<String>>(&model.tool_sequence_json).unwrap_or_default();
+        Self {
+            session_id: model.session_id,
+            agent_id: model.agent_id,
+            slug: model.slug,
+            agent_label: model.agent_label,
+            title: model.title,
+            site: model.site,
+            started_at: model.started_at,
+            ended_at: model.ended_at,
+            duration_ms: model.duration_ms,
+            dispatch_count: model.dispatch_count,
+            tool_sequence,
+            status: TaskStatus::from_db(model.status),
+            error_count: model.error_count,
+            last_screenshot_dispatch_id: model.last_screenshot_dispatch_id,
+            cursor_id: model.cursor_id,
+            has_screenshots: model.has_screenshots,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TaskDetail {
@@ -169,12 +161,32 @@ pub struct SessionStartEvent {
     pub client_version: String,
 }
 
+impl From<agent_session_starts::Model> for SessionStartEvent {
+    fn from(model: agent_session_starts::Model) -> Self {
+        Self {
+            created_at: model.created_at,
+            client_name: model.client_name,
+            client_version: model.client_version,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SessionEndEvent {
     pub created_at: i64,
     pub kind: String,
     pub reason: Option<String>,
+}
+
+impl From<agent_session_ends::Model> for SessionEndEvent {
+    fn from(model: agent_session_ends::Model) -> Self {
+        Self {
+            created_at: model.created_at,
+            kind: model.kind,
+            reason: model.reason,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -196,70 +208,58 @@ pub struct ListTasksQuery {
 }
 
 impl AuditService {
+    /// Opens the audit store and applies its schema snapshot.
     pub async fn open(path: impl AsRef<Path>) -> AppResult<Self> {
-        let path = path.as_ref().to_path_buf();
-        if let Some(parent) = path.parent() {
-            tokio::fs::create_dir_all(parent).await.with_path(parent)?;
-        }
-        let conn = tokio::task::spawn_blocking(move || open_connection(path)).await??;
         Ok(Self {
-            conn: Arc::new(Mutex::new(conn)),
+            db: AuditDb::open(path).await?,
         })
     }
 
+    /// Records a tool dispatch and refreshes its task summary atomically.
     pub async fn record_tool_dispatch(&self, input: RecordToolDispatchInput) -> AppResult<i64> {
-        let mut conn = self.conn.lock().await;
-        let tx = conn.transaction()?;
-        let args_json = truncate(&safe_stringify(&input.raw_args));
-        let result_meta = summarize_result(&input.result);
-        let dispatch_id = input.dispatch_id.into_inner();
-        tx.execute(
-            "INSERT INTO tool_dispatches
-                (agent_id, slug, agent_label, session_id, tool_name, page_id, target_id, url, title, args_json, result_meta, duration_ms, dispatch_id, has_screenshot)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, 0)",
-            params![
-                input.agent_id,
-                input.slug,
-                input.agent_label,
-                input.session_id,
-                input.tool_name,
-                input.page_id,
-                input.target_id,
-                input.url,
-                input.title,
-                args_json,
-                result_meta,
-                input.duration_ms,
-                dispatch_id,
-            ],
-        )?;
-        let id = tx.last_insert_rowid();
-        recompute_task(&tx, input.session_id.as_str())?;
-        tx.commit()?;
-        Ok(id)
+        let txn = self.db.connection().begin().await?;
+        let session_id = input.session_id.clone();
+        let result = ToolDispatches::insert(tool_dispatches::ActiveModel {
+            id: NotSet,
+            created_at: Set(now_epoch_ms()),
+            agent_id: Set(input.agent_id),
+            slug: Set(input.slug),
+            agent_label: Set(input.agent_label),
+            session_id: Set(input.session_id),
+            tool_name: Set(input.tool_name),
+            page_id: Set(input.page_id),
+            target_id: Set(input.target_id),
+            url: Set(input.url),
+            title: Set(input.title),
+            args_json: Set(Some(truncate(&safe_stringify(&input.raw_args)))),
+            result_meta: Set(Some(summarize_result(&input.result))),
+            duration_ms: Set(Some(input.duration_ms)),
+            dispatch_id: Set(Some(input.dispatch_id.into_inner())),
+            has_screenshot: Set(false),
+        })
+        .exec(&txn)
+        .await?;
+        recompute_task(&txn, &session_id).await?;
+        txn.commit().await?;
+        Ok(result.last_insert_id)
     }
 
+    /// Marks a dispatch screenshot and refreshes its task summary when present.
     pub async fn mark_screenshot(&self, dispatch_id: i64) -> AppResult<()> {
-        let mut conn = self.conn.lock().await;
-        let tx = conn.transaction()?;
-        let session_id: Option<String> = tx
-            .query_row(
-                "SELECT session_id FROM tool_dispatches WHERE id = ?1",
-                params![dispatch_id],
-                |row| row.get(0),
-            )
-            .optional()?;
-        tx.execute(
-            "UPDATE tool_dispatches SET has_screenshot = 1 WHERE id = ?1",
-            params![dispatch_id],
-        )?;
-        if let Some(session_id) = session_id {
-            recompute_task(&tx, session_id.as_str())?;
+        let txn = self.db.connection().begin().await?;
+        if let Some(dispatch) = ToolDispatches::find_by_id(dispatch_id).one(&txn).await? {
+            ToolDispatches::update_many()
+                .col_expr(tool_dispatches::Column::HasScreenshot, Expr::value(true))
+                .filter(tool_dispatches::Column::Id.eq(dispatch_id))
+                .exec(&txn)
+                .await?;
+            recompute_task(&txn, &dispatch.session_id).await?;
         }
-        tx.commit()?;
+        txn.commit().await?;
         Ok(())
     }
 
+    /// Records a session start and refreshes its task summary atomically.
     pub async fn record_session_start(
         &self,
         session_id: &str,
@@ -269,73 +269,77 @@ impl AuditService {
         client_name: &str,
         client_version: &str,
     ) -> AppResult<()> {
-        let mut conn = self.conn.lock().await;
-        let tx = conn.transaction()?;
-        tx.execute(
-            "INSERT INTO agent_session_starts
-                (session_id, agent_id, slug, agent_label, client_name, client_version)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-            params![
-                session_id,
-                agent_id,
-                slug,
-                agent_label,
-                client_name,
-                client_version
-            ],
-        )?;
-        recompute_task(&tx, session_id)?;
-        tx.commit()?;
+        let txn = self.db.connection().begin().await?;
+        AgentSessionStarts::insert(agent_session_starts::ActiveModel {
+            id: NotSet,
+            created_at: Set(now_epoch_ms()),
+            session_id: Set(session_id.to_owned()),
+            agent_id: Set(agent_id.to_owned()),
+            slug: Set(slug.to_owned()),
+            agent_label: Set(agent_label.to_owned()),
+            client_name: Set(client_name.to_owned()),
+            client_version: Set(client_version.to_owned()),
+        })
+        .exec(&txn)
+        .await?;
+        recompute_task(&txn, session_id).await?;
+        txn.commit().await?;
         Ok(())
     }
 
+    /// Records a session end and refreshes its task summary atomically.
     pub async fn record_session_end(
         &self,
         session_id: &str,
         kind: &str,
         reason: Option<&str>,
     ) -> AppResult<()> {
-        let mut conn = self.conn.lock().await;
-        let tx = conn.transaction()?;
-        tx.execute(
-            "INSERT INTO agent_session_ends (session_id, kind, reason) VALUES (?1, ?2, ?3)",
-            params![session_id, kind, reason],
-        )?;
-        recompute_task(&tx, session_id)?;
-        tx.commit()?;
+        let txn = self.db.connection().begin().await?;
+        AgentSessionEnds::insert(agent_session_ends::ActiveModel {
+            id: NotSet,
+            created_at: Set(now_epoch_ms()),
+            session_id: Set(session_id.to_owned()),
+            kind: Set(kind.to_owned()),
+            reason: Set(reason.map(str::to_owned)),
+        })
+        .exec(&txn)
+        .await?;
+        recompute_task(&txn, session_id).await?;
+        txn.commit().await?;
         Ok(())
     }
 
+    /// Lists dispatches using stable descending-id cursor pagination.
     pub async fn list_dispatches(
         &self,
         query: ListDispatchesQuery,
     ) -> AppResult<ListDispatchesResult> {
         let limit = query.limit.unwrap_or(100).clamp(1, 500);
-        let mut values = Vec::new();
-        let mut sql = String::from(
-            "SELECT id, created_at, agent_id, slug, agent_label, session_id, tool_name, page_id, target_id, url, title, args_json, result_meta, duration_ms, dispatch_id, has_screenshot FROM tool_dispatches WHERE 1 = 1",
-        );
-        if let Some(agent_id) = query.agent_id {
-            sql.push_str(" AND agent_id = ?");
-            values.push(Value::from(agent_id));
-        }
-        if let Some(session_id) = query.session_id {
-            sql.push_str(" AND session_id = ?");
-            values.push(Value::from(session_id));
-        }
-        if let Some(cursor) = query.cursor {
-            sql.push_str(" AND id < ?");
-            values.push(Value::from(cursor));
-        }
-        sql.push_str(" ORDER BY id DESC LIMIT ?");
-        values.push(Value::from(limit + 1));
-        let conn = self.conn.lock().await;
-        let mut stmt = conn.prepare(&sql)?;
-        let mut rows = stmt
-            .query_map(rusqlite::params_from_iter(values.iter()), map_dispatch_row)?
-            .collect::<Result<Vec<_>, _>>()?;
-        let next_cursor = if rows.len() > usize::try_from(limit).unwrap_or(500) {
-            rows.truncate(usize::try_from(limit).unwrap_or(500));
+        let page_size = usize::try_from(limit).unwrap_or(500);
+        let condition = Condition::all()
+            .add_option(
+                query
+                    .agent_id
+                    .map(|value| tool_dispatches::Column::AgentId.eq(value)),
+            )
+            .add_option(
+                query
+                    .session_id
+                    .map(|value| tool_dispatches::Column::SessionId.eq(value)),
+            )
+            .add_option(
+                query
+                    .cursor
+                    .map(|value| tool_dispatches::Column::Id.lt(value)),
+            );
+        let mut rows = ToolDispatches::find()
+            .filter(condition)
+            .order_by_desc(tool_dispatches::Column::Id)
+            .limit(u64::try_from(limit + 1).unwrap_or(501))
+            .all(self.db.connection())
+            .await?;
+        let next_cursor = if rows.len() > page_size {
+            rows.truncate(page_size);
             rows.last().map(|row| row.id)
         } else {
             None
@@ -343,48 +347,46 @@ impl AuditService {
         Ok(ListDispatchesResult { rows, next_cursor })
     }
 
+    /// Lists task summaries using composable filters and cursor pagination.
     pub async fn list_tasks(&self, query: ListTasksQuery) -> AppResult<ListTasksResult> {
         let limit = query.limit.unwrap_or(25).clamp(1, 100);
-        let mut values = Vec::new();
-        let mut sql = String::from(
-            "SELECT session_id, agent_id, slug, agent_label, title, site, started_at, ended_at, duration_ms, dispatch_count, tool_sequence_json, status, error_count, last_screenshot_dispatch_id, cursor_id, has_screenshots FROM tasks WHERE 1 = 1",
-        );
-        if let Some(agent_id) = query.agent_id {
-            sql.push_str(" AND agent_id = ?");
-            values.push(Value::from(agent_id));
-        }
-        if let Some(status) = query.status {
-            sql.push_str(" AND status = ?");
-            values.push(Value::from(status.as_str().to_string()));
-        }
-        if let Some(site) = query.site {
-            sql.push_str(" AND site = ?");
-            values.push(Value::from(site));
-        }
-        if let Some(since) = query.since {
-            sql.push_str(" AND started_at >= ?");
-            values.push(Value::from(since));
-        }
-        if let Some(search) = query.search {
-            sql.push_str(" AND (lower(title) LIKE ? OR lower(agent_label) LIKE ? OR lower(coalesce(site, '')) LIKE ?)");
+        let page_size = usize::try_from(limit).unwrap_or(100);
+        let search_condition = query.search.map(|search| {
             let pattern = format!("%{}%", search.to_ascii_lowercase());
-            values.push(Value::from(pattern.clone()));
-            values.push(Value::from(pattern.clone()));
-            values.push(Value::from(pattern));
-        }
-        if let Some(cursor) = query.cursor {
-            sql.push_str(" AND cursor_id < ?");
-            values.push(Value::from(cursor));
-        }
-        sql.push_str(" ORDER BY cursor_id DESC, started_at DESC LIMIT ?");
-        values.push(Value::from(limit + 1));
-        let conn = self.conn.lock().await;
-        let mut stmt = conn.prepare(&sql)?;
-        let mut tasks = stmt
-            .query_map(rusqlite::params_from_iter(values.iter()), map_task_summary)?
-            .collect::<Result<Vec<_>, _>>()?;
-        let next_cursor = if tasks.len() > usize::try_from(limit).unwrap_or(100) {
-            tasks.truncate(usize::try_from(limit).unwrap_or(100));
+            Condition::any()
+                .add(Func::lower(Expr::col(tasks::Column::Title)).like(pattern.clone()))
+                .add(Func::lower(Expr::col(tasks::Column::AgentLabel)).like(pattern.clone()))
+                .add(
+                    Func::lower(Func::coalesce([
+                        Expr::col(tasks::Column::Site).into(),
+                        Expr::value(""),
+                    ]))
+                    .like(pattern),
+                )
+        });
+        let condition = Condition::all()
+            .add_option(query.agent_id.map(|value| tasks::Column::AgentId.eq(value)))
+            .add_option(
+                query
+                    .status
+                    .map(|value| tasks::Column::Status.eq(value.as_str())),
+            )
+            .add_option(query.site.map(|value| tasks::Column::Site.eq(value)))
+            .add_option(query.since.map(|value| tasks::Column::StartedAt.gte(value)))
+            .add_option(search_condition)
+            .add_option(query.cursor.map(|value| tasks::Column::CursorId.lt(value)));
+        let mut tasks = Tasks::find()
+            .filter(condition)
+            .order_by_desc(tasks::Column::CursorId)
+            .order_by_desc(tasks::Column::StartedAt)
+            .limit(u64::try_from(limit + 1).unwrap_or(101))
+            .all(self.db.connection())
+            .await?
+            .into_iter()
+            .map(TaskSummary::from)
+            .collect::<Vec<_>>();
+        let next_cursor = if tasks.len() > page_size {
+            tasks.truncate(page_size);
             tasks.last().map(|task| task.cursor_id)
         } else {
             None
@@ -392,50 +394,27 @@ impl AuditService {
         Ok(ListTasksResult { tasks, next_cursor })
     }
 
+    /// Returns a task summary with its ordered events and dispatches.
     pub async fn get_task(&self, session_id: &str) -> AppResult<Option<TaskDetail>> {
-        let conn = self.conn.lock().await;
-        let summary = conn
-            .query_row(
-                "SELECT session_id, agent_id, slug, agent_label, title, site, started_at, ended_at, duration_ms, dispatch_count, tool_sequence_json, status, error_count, last_screenshot_dispatch_id, cursor_id, has_screenshots FROM tasks WHERE session_id = ?1",
-                params![session_id],
-                map_task_summary,
-            )
-            .optional()?;
-        let Some(summary) = summary else {
+        let Some(summary) = Tasks::find_by_id(session_id.to_owned())
+            .one(self.db.connection())
+            .await?
+            .map(TaskSummary::from)
+        else {
             return Ok(None);
         };
-        let dispatches = query_dispatches_for_session(&conn, session_id)?;
+        let dispatches = query_dispatches_for_session(self.db.connection(), session_id).await?;
         let screenshot_dispatch_ids = dispatches
             .iter()
             .filter(|row| row.has_screenshot && !result_is_error(row.result_meta.as_deref()))
             .map(|row| row.id)
             .collect();
-        let start_event = conn
-            .query_row(
-                "SELECT created_at, client_name, client_version FROM agent_session_starts WHERE session_id = ?1 ORDER BY id LIMIT 1",
-                params![session_id],
-                |row| {
-                    Ok(SessionStartEvent {
-                        created_at: row.get(0)?,
-                        client_name: row.get(1)?,
-                        client_version: row.get(2)?,
-                    })
-                },
-            )
-            .optional()?;
-        let end_event = conn
-            .query_row(
-                "SELECT created_at, kind, reason FROM agent_session_ends WHERE session_id = ?1 ORDER BY id LIMIT 1",
-                params![session_id],
-                |row| {
-                    Ok(SessionEndEvent {
-                        created_at: row.get(0)?,
-                        kind: row.get(1)?,
-                        reason: row.get(2)?,
-                    })
-                },
-            )
-            .optional()?;
+        let start_event = query_start(self.db.connection(), session_id)
+            .await?
+            .map(SessionStartEvent::from);
+        let end_event = query_end(self.db.connection(), session_id)
+            .await?
+            .map(SessionEndEvent::from);
         Ok(Some(TaskDetail {
             summary,
             dispatches,
@@ -446,117 +425,10 @@ impl AuditService {
     }
 }
 
-/// Opens the audit SQLite DB with runtime pragmas and the latest schema.
-fn open_connection(path: PathBuf) -> AppResult<Connection> {
-    let mut conn = Connection::open(path)?;
-    conn.pragma_update(None, "journal_mode", "WAL")?;
-    conn.pragma_update(None, "synchronous", "NORMAL")?;
-    conn.pragma_update(None, "foreign_keys", "ON")?;
-    run_migrations(&mut conn)?;
-    Ok(conn)
-}
-
-/// Baselines legacy audit DBs and applies all Rust-owned schema migrations.
-fn run_migrations(conn: &mut Connection) -> AppResult<()> {
-    let seed_drizzle_compat = baseline_user_version(conn)? == 0;
-    audit_migrations()
-        .to_latest(conn)
-        .map_err(|err| AppError::Internal(format!("audit migration failed: {err}")))?;
-    if seed_drizzle_compat {
-        seed_drizzle_migrations(conn)?;
-    }
-    Ok(())
-}
-
-/// Returns the ordered Rust-owned migrations tracked by SQLite user_version.
-fn audit_migrations() -> Migrations<'static> {
-    Migrations::new(vec![
-        M::up(AUDIT_0000),
-        M::up(AUDIT_0001),
-        M::up(AUDIT_0002),
-        M::up(AUDIT_0003),
-    ])
-}
-
-/// Marks old Drizzle/Rust-created schemas before native migrations continue.
-fn baseline_user_version(conn: &Connection) -> AppResult<usize> {
-    let version = user_version(conn)?;
-    if version != 0 {
-        return Ok(version);
-    }
-
-    let baseline = detected_schema_version(conn)?;
-    if baseline > 0 {
-        conn.pragma_update(None, "user_version", baseline)?;
-    }
-    Ok(baseline)
-}
-
-/// Infers how far a pre-user_version audit DB had already migrated.
-fn detected_schema_version(conn: &Connection) -> AppResult<usize> {
-    if !table_exists(conn, "tool_dispatches")? {
-        return Ok(0);
-    }
-    if !table_exists(conn, "agent_session_starts")? || !table_exists(conn, "agent_session_ends")? {
-        return Ok(1);
-    }
-    if !column_exists(conn, "tool_dispatches", "dispatch_id")? {
-        return Ok(2);
-    }
-    if !table_exists(conn, "tasks")? {
-        return Ok(3);
-    }
-    Ok(CURRENT_AUDIT_SCHEMA_VERSION)
-}
-
-fn user_version(conn: &Connection) -> AppResult<usize> {
-    conn.query_row("PRAGMA user_version", [], |row| row.get(0))
-        .map_err(AppError::from)
-}
-
-fn table_exists(conn: &Connection, table: &str) -> AppResult<bool> {
-    conn.query_row(
-        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?1",
-        params![table],
-        |_| Ok(()),
-    )
-    .optional()
-    .map(|value| value.is_some())
-    .map_err(AppError::from)
-}
-
-fn column_exists(conn: &Connection, table: &str, column: &str) -> AppResult<bool> {
-    let mut stmt = conn.prepare(&format!("PRAGMA table_info({table})"))?;
-    let columns = stmt
-        .query_map([], |row| row.get::<_, String>(1))?
-        .collect::<Result<Vec<_>, _>>()?;
-    Ok(columns.iter().any(|name| name == column))
-}
-
-/// Preserves TS startup compatibility only for fresh DBs created by Rust.
-fn seed_drizzle_migrations(conn: &Connection) -> AppResult<()> {
-    // TS-compat: delete with apps/claw-server.
-    conn.execute_batch(
-        r#"CREATE TABLE IF NOT EXISTS "__drizzle_migrations" (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            hash text NOT NULL,
-            created_at numeric
-        );"#,
-    )?;
-    for migration in DRIZZLE_COMPAT_MIGRATIONS {
-        conn.execute(
-            "INSERT INTO __drizzle_migrations (hash, created_at)
-             SELECT ?1, ?2 WHERE NOT EXISTS (SELECT 1 FROM __drizzle_migrations WHERE created_at = ?2)",
-            params![migration.tag, migration.created_at],
-        )?;
-    }
-    Ok(())
-}
-
-fn recompute_task(conn: &Connection, session_id: &str) -> AppResult<()> {
-    let dispatches = query_dispatches_for_session(conn, session_id)?;
-    let start = query_start(conn, session_id)?;
-    let end = query_end(conn, session_id)?;
+async fn recompute_task<C: ConnectionTrait>(conn: &C, session_id: &str) -> AppResult<()> {
+    let dispatches = query_dispatches_for_session(conn, session_id).await?;
+    let start = query_start(conn, session_id).await?;
+    let end = query_end(conn, session_id).await?;
     if dispatches.is_empty() && start.is_none() {
         return Ok(());
     }
@@ -594,7 +466,8 @@ fn recompute_task(conn: &Connection, session_id: &str) -> AppResult<()> {
         .iter()
         .filter(|row| result_is_error(row.result_meta.as_deref()))
         .count() as i64;
-    let status = derive_status(error_count, end.as_ref());
+    let end_event = end.clone().map(SessionEndEvent::from);
+    let status = derive_status(error_count, end_event.as_ref());
     let tool_sequence: Vec<String> = dispatches.iter().map(|row| row.tool_name.clone()).collect();
     let screenshot_ids: Vec<i64> = dispatches
         .iter()
@@ -602,145 +475,83 @@ fn recompute_task(conn: &Connection, session_id: &str) -> AppResult<()> {
         .map(|row| row.id)
         .collect();
     let last_screenshot_dispatch_id = screenshot_ids.last().copied();
-    conn.execute(
-        "INSERT INTO tasks
-            (session_id, agent_id, slug, agent_label, title, site, started_at, ended_at, duration_ms, dispatch_count, tool_sequence_json, status, error_count, last_screenshot_dispatch_id, cursor_id, has_screenshots, updated_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)
-         ON CONFLICT(session_id) DO UPDATE SET
-            agent_id = excluded.agent_id,
-            slug = excluded.slug,
-            agent_label = excluded.agent_label,
-            title = excluded.title,
-            site = excluded.site,
-            started_at = excluded.started_at,
-            ended_at = excluded.ended_at,
-            duration_ms = excluded.duration_ms,
-            dispatch_count = excluded.dispatch_count,
-            tool_sequence_json = excluded.tool_sequence_json,
-            status = excluded.status,
-            error_count = excluded.error_count,
-            last_screenshot_dispatch_id = excluded.last_screenshot_dispatch_id,
-            cursor_id = excluded.cursor_id,
-            has_screenshots = excluded.has_screenshots,
-            updated_at = excluded.updated_at",
-        params![
-            session_id,
-            agent_id,
-            slug,
-            agent_label,
-            title,
-            site,
-            started_at,
-            ended_at,
-            duration_ms,
-            i64::try_from(dispatches.len()).unwrap_or(i64::MAX),
-            serde_json::to_string(&tool_sequence)?,
-            status.as_str(),
-            error_count,
-            last_screenshot_dispatch_id,
-            cursor_id,
-            if screenshot_ids.is_empty() { 0 } else { 1 },
-            now_epoch_ms(),
-        ],
-    )?;
+    Tasks::insert(tasks::ActiveModel {
+        session_id: Set(session_id.to_owned()),
+        agent_id: Set(agent_id),
+        slug: Set(slug),
+        agent_label: Set(agent_label),
+        title: Set(title),
+        site: Set(site),
+        started_at: Set(started_at),
+        ended_at: Set(ended_at),
+        duration_ms: Set(duration_ms),
+        dispatch_count: Set(i64::try_from(dispatches.len()).unwrap_or(i64::MAX)),
+        tool_sequence_json: Set(serde_json::to_string(&tool_sequence)?),
+        status: Set(status.as_str().to_owned()),
+        error_count: Set(error_count),
+        last_screenshot_dispatch_id: Set(last_screenshot_dispatch_id),
+        cursor_id: Set(cursor_id),
+        has_screenshots: Set(!screenshot_ids.is_empty()),
+        updated_at: Set(now_epoch_ms()),
+    })
+    .on_conflict(
+        OnConflict::column(tasks::Column::SessionId)
+            .update_columns([
+                tasks::Column::AgentId,
+                tasks::Column::Slug,
+                tasks::Column::AgentLabel,
+                tasks::Column::Title,
+                tasks::Column::Site,
+                tasks::Column::StartedAt,
+                tasks::Column::EndedAt,
+                tasks::Column::DurationMs,
+                tasks::Column::DispatchCount,
+                tasks::Column::ToolSequenceJson,
+                tasks::Column::Status,
+                tasks::Column::ErrorCount,
+                tasks::Column::LastScreenshotDispatchId,
+                tasks::Column::CursorId,
+                tasks::Column::HasScreenshots,
+                tasks::Column::UpdatedAt,
+            ])
+            .to_owned(),
+    )
+    .exec_without_returning(conn)
+    .await?;
     Ok(())
 }
 
-fn query_dispatches_for_session(
-    conn: &Connection,
+async fn query_dispatches_for_session<C: ConnectionTrait>(
+    conn: &C,
     session_id: &str,
 ) -> AppResult<Vec<ToolDispatchRow>> {
-    let mut stmt = conn.prepare("SELECT id, created_at, agent_id, slug, agent_label, session_id, tool_name, page_id, target_id, url, title, args_json, result_meta, duration_ms, dispatch_id, has_screenshot FROM tool_dispatches WHERE session_id = ?1 ORDER BY id")?;
-    let rows = stmt
-        .query_map(params![session_id], map_dispatch_row)?
-        .collect::<Result<Vec<_>, _>>()?;
-    Ok(rows)
+    Ok(ToolDispatches::find()
+        .filter(tool_dispatches::Column::SessionId.eq(session_id))
+        .order_by_asc(tool_dispatches::Column::Id)
+        .all(conn)
+        .await?)
 }
 
-#[derive(Debug)]
-struct StartRow {
-    created_at: i64,
-    agent_id: String,
-    slug: String,
-    agent_label: String,
+async fn query_start<C: ConnectionTrait>(
+    conn: &C,
+    session_id: &str,
+) -> AppResult<Option<agent_session_starts::Model>> {
+    Ok(AgentSessionStarts::find()
+        .filter(agent_session_starts::Column::SessionId.eq(session_id))
+        .order_by_asc(agent_session_starts::Column::Id)
+        .one(conn)
+        .await?)
 }
 
-fn query_start(conn: &Connection, session_id: &str) -> AppResult<Option<StartRow>> {
-    conn.query_row(
-        "SELECT created_at, agent_id, slug, agent_label FROM agent_session_starts WHERE session_id = ?1 ORDER BY id LIMIT 1",
-        params![session_id],
-        |row| {
-            Ok(StartRow {
-                created_at: row.get(0)?,
-                agent_id: row.get(1)?,
-                slug: row.get(2)?,
-                agent_label: row.get(3)?,
-            })
-        },
-    )
-    .optional()
-    .map_err(AppError::from)
-}
-
-fn query_end(conn: &Connection, session_id: &str) -> AppResult<Option<SessionEndEvent>> {
-    conn.query_row(
-        "SELECT created_at, kind, reason FROM agent_session_ends WHERE session_id = ?1 ORDER BY id LIMIT 1",
-        params![session_id],
-        |row| {
-            Ok(SessionEndEvent {
-                created_at: row.get(0)?,
-                kind: row.get(1)?,
-                reason: row.get(2)?,
-            })
-        },
-    )
-    .optional()
-    .map_err(AppError::from)
-}
-
-fn map_dispatch_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<ToolDispatchRow> {
-    Ok(ToolDispatchRow {
-        id: row.get(0)?,
-        created_at: row.get(1)?,
-        agent_id: row.get(2)?,
-        slug: row.get(3)?,
-        agent_label: row.get(4)?,
-        session_id: row.get(5)?,
-        tool_name: row.get(6)?,
-        page_id: row.get(7)?,
-        target_id: row.get(8)?,
-        url: row.get(9)?,
-        title: row.get(10)?,
-        args_json: row.get(11)?,
-        result_meta: row.get(12)?,
-        duration_ms: row.get(13)?,
-        dispatch_id: row.get(14)?,
-        has_screenshot: row.get::<_, i64>(15)? != 0,
-    })
-}
-
-fn map_task_summary(row: &rusqlite::Row<'_>) -> rusqlite::Result<TaskSummary> {
-    let tool_sequence_json: String = row.get(10)?;
-    let tool_sequence =
-        serde_json::from_str::<Vec<String>>(&tool_sequence_json).unwrap_or_default();
-    Ok(TaskSummary {
-        session_id: row.get(0)?,
-        agent_id: row.get(1)?,
-        slug: row.get(2)?,
-        agent_label: row.get(3)?,
-        title: row.get(4)?,
-        site: row.get(5)?,
-        started_at: row.get(6)?,
-        ended_at: row.get(7)?,
-        duration_ms: row.get(8)?,
-        dispatch_count: row.get(9)?,
-        tool_sequence,
-        status: TaskStatus::from_db(row.get(11)?),
-        error_count: row.get(12)?,
-        last_screenshot_dispatch_id: row.get(13)?,
-        cursor_id: row.get(14)?,
-        has_screenshots: row.get::<_, i64>(15)? != 0,
-    })
+async fn query_end<C: ConnectionTrait>(
+    conn: &C,
+    session_id: &str,
+) -> AppResult<Option<agent_session_ends::Model>> {
+    Ok(AgentSessionEnds::find()
+        .filter(agent_session_ends::Column::SessionId.eq(session_id))
+        .order_by_asc(agent_session_ends::Column::Id)
+        .one(conn)
+        .await?)
 }
 
 fn derive_status(error_count: i64, end: Option<&SessionEndEvent>) -> TaskStatus {
@@ -832,10 +643,8 @@ mod tests {
     use super::{
         AuditService, DispatchResultSummary, ListTasksQuery, RecordToolDispatchInput, TaskStatus,
     };
-    use rusqlite::{Connection, OptionalExtension};
     use serde_json::json;
-    use std::path::Path;
-    use tempfile::{TempDir, tempdir};
+    use tempfile::tempdir;
 
     fn dispatch(session_id: &str, url: &str, is_error: bool) -> RecordToolDispatchInput {
         RecordToolDispatchInput {
@@ -862,149 +671,6 @@ mod tests {
                 content: json!([{ "type": "text", "text": "ok" }]),
             },
         }
-    }
-
-    fn audit_path(dir: &TempDir) -> std::path::PathBuf {
-        dir.path().join("audit.sqlite")
-    }
-
-    fn open_temp_audit(dir: &TempDir) -> anyhow::Result<Connection> {
-        Ok(super::open_connection(audit_path(dir))?)
-    }
-
-    fn seed_ts_drizzle_schema(conn: &Connection) -> anyhow::Result<()> {
-        conn.execute_batch(super::AUDIT_0000)?;
-        conn.execute_batch(super::AUDIT_0001)?;
-        super::seed_drizzle_migrations(conn)?;
-        Ok(())
-    }
-
-    fn seed_legacy_rust_schema(path: &Path) -> anyhow::Result<()> {
-        let conn = Connection::open(path)?;
-        seed_ts_drizzle_schema(&conn)?;
-        conn.execute_batch(super::AUDIT_0002)?;
-        conn.execute_batch(super::AUDIT_0003)?;
-        Ok(())
-    }
-
-    fn drizzle_entries(conn: &Connection) -> anyhow::Result<Vec<(String, i64)>> {
-        if !super::table_exists(conn, "__drizzle_migrations")? {
-            return Ok(Vec::new());
-        }
-        let mut stmt =
-            conn.prepare("SELECT hash, created_at FROM __drizzle_migrations ORDER BY created_at")?;
-        let rows = stmt
-            .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
-            .collect::<Result<Vec<_>, _>>()?;
-        Ok(rows)
-    }
-
-    fn expected_drizzle_entries() -> Vec<(String, i64)> {
-        super::DRIZZLE_COMPAT_MIGRATIONS
-            .iter()
-            .map(|migration| (migration.tag.to_string(), migration.created_at))
-            .collect()
-    }
-
-    fn index_exists(conn: &Connection, name: &str) -> anyhow::Result<bool> {
-        let exists = conn
-            .query_row(
-                "SELECT 1 FROM sqlite_master WHERE type = 'index' AND name = ?1",
-                [name],
-                |_| Ok(()),
-            )
-            .optional()?
-            .is_some();
-        Ok(exists)
-    }
-
-    fn assert_current_schema(conn: &Connection) -> anyhow::Result<()> {
-        assert_eq!(
-            super::user_version(conn)?,
-            super::CURRENT_AUDIT_SCHEMA_VERSION
-        );
-        assert!(super::table_exists(conn, "tool_dispatches")?);
-        assert!(super::table_exists(conn, "agent_session_starts")?);
-        assert!(super::table_exists(conn, "agent_session_ends")?);
-        assert!(super::column_exists(
-            conn,
-            "tool_dispatches",
-            "dispatch_id"
-        )?);
-        assert!(super::column_exists(
-            conn,
-            "tool_dispatches",
-            "has_screenshot"
-        )?);
-        assert!(super::table_exists(conn, "tasks")?);
-        assert!(index_exists(conn, "tasks_cursor_idx")?);
-        assert!(index_exists(conn, "tasks_agent_cursor_idx")?);
-        assert!(index_exists(conn, "tasks_status_cursor_idx")?);
-        assert!(index_exists(conn, "tasks_site_cursor_idx")?);
-        assert!(index_exists(conn, "tasks_started_idx")?);
-        Ok(())
-    }
-
-    #[test]
-    fn copied_drizzle_migrations_match_ts_sources() {
-        assert_eq!(
-            super::AUDIT_0000,
-            include_str!("../../../claw-server/drizzle/0000_add_tool_dispatches.sql")
-        );
-        assert_eq!(
-            super::AUDIT_0001,
-            include_str!("../../../claw-server/drizzle/0001_add_agent_session_events.sql")
-        );
-    }
-
-    #[test]
-    fn fresh_db_runs_all_migrations_and_seeds_ts_compat_ledger() -> anyhow::Result<()> {
-        let dir = tempdir()?;
-        let conn = open_temp_audit(&dir)?;
-        assert_current_schema(&conn)?;
-        assert_eq!(drizzle_entries(&conn)?, expected_drizzle_entries());
-        Ok(())
-    }
-
-    #[test]
-    fn ts_drizzle_db_is_baselined_before_rust_migrations() -> anyhow::Result<()> {
-        let dir = tempdir()?;
-        let path = audit_path(&dir);
-        let conn = Connection::open(&path)?;
-        seed_ts_drizzle_schema(&conn)?;
-        drop(conn);
-
-        let conn = super::open_connection(path)?;
-        assert_current_schema(&conn)?;
-        assert_eq!(drizzle_entries(&conn)?, expected_drizzle_entries());
-        Ok(())
-    }
-
-    #[test]
-    fn legacy_rust_touched_db_is_baselined_without_rerunning() -> anyhow::Result<()> {
-        let dir = tempdir()?;
-        let path = audit_path(&dir);
-        seed_legacy_rust_schema(&path)?;
-
-        let conn = super::open_connection(path)?;
-        assert_current_schema(&conn)?;
-        assert_eq!(drizzle_entries(&conn)?, expected_drizzle_entries());
-        Ok(())
-    }
-
-    #[test]
-    fn migrations_are_idempotent_on_double_open() -> anyhow::Result<()> {
-        let dir = tempdir()?;
-        let path = audit_path(&dir);
-        let conn = super::open_connection(path.clone())?;
-        assert_current_schema(&conn)?;
-        assert_eq!(drizzle_entries(&conn)?, expected_drizzle_entries());
-        drop(conn);
-
-        let conn = super::open_connection(path)?;
-        assert_current_schema(&conn)?;
-        assert_eq!(drizzle_entries(&conn)?, expected_drizzle_entries());
-        Ok(())
     }
 
     #[tokio::test]

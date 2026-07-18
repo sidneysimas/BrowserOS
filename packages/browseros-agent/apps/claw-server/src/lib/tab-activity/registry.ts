@@ -7,7 +7,7 @@
  * activity trail for the agent currently driving that tab. The
  * cockpit's `mcp/register.ts` wrapper appends to the trail after
  * every successful `executeTool` call; the homepage polls
- * `GET /tabs/activity` to render the current view.
+ * `GET /api/v1/tabs` to render the current view.
  *
  * Each record carries:
  *   - `sessionId`: the MCP session currently claiming the tab. The

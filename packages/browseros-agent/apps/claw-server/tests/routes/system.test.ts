@@ -5,9 +5,7 @@
  */
 
 import { describe, expect, mock, test } from 'bun:test'
-import pkg from '../../package.json' with { type: 'json' }
 import { createServer } from '../../src/server'
-import { VERSION } from '../../src/version'
 
 const app = createServer()
 
@@ -17,17 +15,6 @@ describe('system routes', () => {
 
     expect(res.status).toBe(200)
     await expect(res.json()).resolves.toEqual({ status: 'ok' })
-  })
-
-  test('system version uses the shared package version', async () => {
-    const res = await app.fetch(new Request('http://localhost/system/version'))
-
-    expect(res.status).toBe(200)
-    await expect(res.json()).resolves.toEqual({
-      name: pkg.name,
-      version: VERSION,
-    })
-    expect(VERSION).toBe(pkg.version)
   })
 
   test('system shutdown responds before invoking the shutdown hook', async () => {

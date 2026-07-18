@@ -35,7 +35,6 @@
     "@browseros/browser-core": "workspace:*",
     "@browseros/browser-mcp": "workspace:*",
     "@browseros/shared": "workspace:*",
-    "@hono/zod-validator": "^0.8.0",
     "@modelcontextprotocol/sdk": "^1.27.1",
     "commander": "^14.0.3",
     "drizzle-orm": "^0.45.2",

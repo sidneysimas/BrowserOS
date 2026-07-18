@@ -150,146 +150,6 @@ async fn request_status(router: &Router, method: &str, uri: &str) -> anyhow::Res
     Ok(router.clone().oneshot(request).await?.status())
 }
 
-#[tokio::test]
-async fn recordings_routes_expose_health_unknown_tab_and_body_limit_contracts() -> anyhow::Result<()>
-{
-    let app = test_app().await?;
-    let (status, health) = request_json(&app.router, "GET", "/recordings/health", None).await?;
-    assert_eq!(status, StatusCode::OK);
-    assert_eq!(health, json!({ "ok": true }));
-
-    let unknown = Request::builder()
-        .method("POST")
-        .uri("/recordings/tabs/99/events")
-        .body(Body::from(r#"{"ts":100,"type":3,"data":{}}"#))?;
-    let response = app.router.clone().oneshot(unknown).await?;
-    assert_eq!(response.status(), StatusCode::OK);
-    assert_eq!(
-        serde_json::from_slice::<Value>(&to_bytes(response.into_body(), usize::MAX).await?)?,
-        json!({ "ok": false, "reason": "unknown tab", "accepted": 0 })
-    );
-
-    let oversized = Request::builder()
-        .method("POST")
-        .uri("/recordings/tabs/99/events")
-        .header(header::CONTENT_LENGTH, (8 * 1024 * 1024 + 1).to_string())
-        .body(Body::from("{}"))?;
-    assert_eq!(
-        app.router.clone().oneshot(oversized).await?.status(),
-        StatusCode::PAYLOAD_TOO_LARGE
-    );
-    Ok(())
-}
-
-#[tokio::test]
-async fn recordings_pipeline_ingests_and_replays_only_the_claimed_target() -> anyhow::Result<()> {
-    let mock = MockCdp::start().await?;
-    mock.add_tab(11, "target-a", 1).await;
-    mock.add_tab(22, "target-b", 1).await;
-    let app = test_app_with_cdp_port(mock.cdp_port, false).await?;
-    app.state.browser.connect_once_for_testing().await?;
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)?
-        .as_millis() as i64;
-
-    let first_body = [
-        json!({ "ts": now + 200, "type": 3, "data": { "id": "later" } }),
-        json!({ "ts": now - 100, "type": 3, "data": { "id": "before" } }),
-        json!({ "ts": now + 100, "type": 3, "data": { "id": "earlier" } }),
-        json!({ "ts": now + 6_000, "type": 3, "data": { "id": "after" } }),
-    ]
-    .into_iter()
-    .map(|event| event.to_string())
-    .chain([
-        "{bad json".to_string(),
-        json!({ "type": 3, "data": { "id": "missing-ts" } }).to_string(),
-    ])
-    .collect::<Vec<_>>()
-    .join("\n");
-    for (tab_id, body, accepted, batch_id) in [
-        (11, first_body.clone(), 4, Some("batch-a")),
-        (
-            22,
-            json!({ "ts": now + 150, "type": 3, "data": { "id": "unclaimed" } }).to_string(),
-            1,
-            None,
-        ),
-    ] {
-        let mut request = Request::builder()
-            .method("POST")
-            .uri(format!("/recordings/tabs/{tab_id}/events"));
-        if let Some(batch_id) = batch_id {
-            request = request.header("x-recording-batch-id", batch_id);
-        }
-        let request = request.body(Body::from(body))?;
-        let response = app.router.clone().oneshot(request).await?;
-        assert_eq!(response.status(), StatusCode::OK);
-        assert_eq!(
-            serde_json::from_slice::<Value>(&to_bytes(response.into_body(), usize::MAX).await?)?,
-            json!({ "ok": true, "accepted": accepted })
-        );
-    }
-    let retry = Request::builder()
-        .method("POST")
-        .uri("/recordings/tabs/11/events")
-        .header("X-Recording-Batch-Id", "batch-a")
-        .body(Body::from(first_body))?;
-    let response = app.router.clone().oneshot(retry).await?;
-    assert_eq!(response.status(), StatusCode::OK);
-    assert_eq!(
-        serde_json::from_slice::<Value>(&to_bytes(response.into_body(), usize::MAX).await?)?,
-        json!({ "ok": true, "accepted": 0 })
-    );
-    app.state
-        .audit
-        .claim_target_for_session("target-a", "session-a", "agent", now)
-        .await?;
-    app.state
-        .audit
-        .release_target_for_session("target-a", "session-a")
-        .await?;
-
-    let response = app
-        .router
-        .clone()
-        .oneshot(
-            Request::builder()
-                .uri("/audit/replays/session-a")
-                .body(Body::empty())?,
-        )
-        .await?;
-    assert_eq!(response.status(), StatusCode::OK);
-    assert_eq!(
-        response
-            .headers()
-            .get(header::CONTENT_TYPE)
-            .and_then(|value| value.to_str().ok()),
-        Some("application/x-ndjson")
-    );
-    let body = String::from_utf8(to_bytes(response.into_body(), usize::MAX).await?.to_vec())?;
-    let events = body
-        .lines()
-        .map(serde_json::from_str::<Value>)
-        .collect::<Result<Vec<_>, _>>()?;
-    assert_eq!(
-        events
-            .iter()
-            .map(|event| event["ts"].as_i64())
-            .collect::<Vec<_>>(),
-        [Some(now + 100), Some(now + 200)]
-    );
-    assert!(events.iter().all(|event| event["targetId"] == "target-a"));
-
-    let (status, meta) =
-        request_json(&app.router, "GET", "/audit/replays/session-a/meta", None).await?;
-    assert_eq!(status, StatusCode::OK);
-    assert_eq!(meta["exists"], true);
-    assert_eq!(meta["targets"][0]["targetId"], "target-a");
-    assert_eq!(meta["targets"][0]["tabId"], 11);
-    drop(mock);
-    Ok(())
-}
-
 fn response_body_value(headers: &HeaderMap, bytes: &[u8]) -> anyhow::Result<Value> {
     if bytes.is_empty() {
         return Ok(Value::Null);
@@ -433,51 +293,6 @@ async fn system_shutdown_preserves_contract_body_and_defers_runtime_teardown() -
 }
 
 #[tokio::test]
-async fn audit_empty_and_legacy_replay_routes_are_gone() -> anyhow::Result<()> {
-    let app = test_app().await?;
-    let (status, dispatches) = request_json(&app.router, "GET", "/audit/dispatches", None).await?;
-    assert_eq!(status, StatusCode::OK);
-    assert_eq!(
-        dispatches["rows"]
-            .as_array()
-            .ok_or_else(|| anyhow::anyhow!("rows not array"))?
-            .len(),
-        0
-    );
-    assert!(dispatches["nextCursor"].is_null());
-
-    for (method, path) in [
-        ("GET", "/replay/tabs"),
-        ("GET", "/audit/replay/missing"),
-        ("GET", "/audit/replay/missing/exists"),
-        ("POST", "/audit/replay/missing/events"),
-    ] {
-        assert_eq!(
-            request_status(&app.router, method, path).await?,
-            StatusCode::NOT_FOUND
-        );
-    }
-    Ok(())
-}
-
-#[tokio::test]
-async fn cancel_with_no_active_dispatches_returns_ts_shaped_404() -> anyhow::Result<()> {
-    let app = test_app().await?;
-    let (status, body) =
-        request_json(&app.router, "POST", "/agents/idle-agent/cancel", None).await?;
-    assert_eq!(status, StatusCode::NOT_FOUND);
-    assert_eq!(
-        body,
-        json!({
-            "ok": false,
-            "cancelled": 0,
-            "reason": "no active dispatches for this agent"
-        })
-    );
-    Ok(())
-}
-
-#[tokio::test]
 async fn mcp_hygiene_rejects_browser_originated_requests() -> anyhow::Result<()> {
     let app = test_app().await?;
 
@@ -599,12 +414,11 @@ async fn mcp_initialize_list_guard_audit_and_delete() -> anyhow::Result<()> {
             .contains("javascript")
     );
 
-    let (status, dispatches) = request_json(&app.router, "GET", "/audit/dispatches", None).await?;
-    assert_eq!(status, StatusCode::OK);
-    let rows = dispatches["rows"]
-        .as_array()
-        .ok_or_else(|| anyhow::anyhow!("rows not array"))?;
-    assert!(rows.is_empty(), "guard rejections must skip audit effects");
+    let dispatches = app.state.audit.list_dispatches(Default::default()).await?;
+    assert!(
+        dispatches.rows.is_empty(),
+        "guard rejections must skip audit effects"
+    );
 
     let (status, _headers, _body) = request_json_with_headers(
         &app.router,
@@ -867,7 +681,7 @@ async fn mcp_tabs_new_roundtrips_through_mock_cdp() -> anyhow::Result<()> {
         .screencast
         .clone()
         .start(app.state.browser.clone(), app.state.tab_activity.clone());
-    let _ = request_json(&app.router, "GET", "/tabs/activity", None).await?;
+    let _ = request_json(&app.router, "GET", "/api/v1/tabs", None).await?;
     for _ in 0..50 {
         if app.state.screencast.frame_for(1).await.is_some() {
             break;
@@ -896,34 +710,17 @@ async fn mcp_tabs_new_roundtrips_through_mock_cdp() -> anyhow::Result<()> {
     assert_eq!(status, StatusCode::OK);
     assert_eq!(wait_body["result"]["isError"], false);
 
-    let (status, dispatches) = request_json(&app.router, "GET", "/audit/dispatches", None).await?;
-    assert_eq!(status, StatusCode::OK);
-    let rows = dispatches["rows"]
-        .as_array()
-        .ok_or_else(|| anyhow::anyhow!("rows not array"))?;
+    let dispatches = app.state.audit.list_dispatches(Default::default()).await?;
+    let rows = &dispatches.rows;
     assert!(
         rows.iter()
-            .any(|row| row["toolName"] == "tabs" && row["dispatchId"].is_string())
+            .any(|row| row.tool_name == "tabs" && row.dispatch_id.is_some())
     );
 
     // The first successful page read persists the already-cached poller frame.
-    let mut screenshot_statuses = Vec::new();
-    for row in rows {
-        let dispatch_id = row["dispatchId"]
-            .as_str()
-            .ok_or_else(|| anyhow::anyhow!("dispatchId not string"))?;
-        screenshot_statuses.push(
-            request_status(
-                &app.router,
-                "GET",
-                &format!("/audit/screenshot/{dispatch_id}"),
-            )
-            .await?,
-        );
-    }
     assert!(
-        screenshot_statuses.contains(&StatusCode::OK),
-        "no dispatch had a persisted screenshot: {screenshot_statuses:?}"
+        rows.iter().any(|row| row.has_screenshot),
+        "no dispatch had a persisted screenshot"
     );
     app.state.screencast.stop();
     screencast_task.await?;
@@ -1053,41 +850,21 @@ async fn screencast_fallback_flag_disables_fallback_screenshots() -> anyhow::Res
     assert_eq!(status, StatusCode::OK);
     assert_eq!(body["result"]["isError"], false, "tabs_new body: {body:?}");
 
-    let (status, dispatches) = request_json(&app.router, "GET", "/audit/dispatches", None).await?;
-    assert_eq!(status, StatusCode::OK);
-    let rows = dispatches["rows"]
-        .as_array()
-        .ok_or_else(|| anyhow::anyhow!("rows not array"))?;
+    let dispatches = app.state.audit.list_dispatches(Default::default()).await?;
+    let rows = &dispatches.rows;
     assert_eq!(rows.len(), 1);
-    let dispatch_id = rows[0]["dispatchId"]
-        .as_str()
-        .ok_or_else(|| anyhow::anyhow!("dispatchId not string"))?;
-    let status = request_status(
-        &app.router,
-        "GET",
-        &format!("/audit/screenshot/{dispatch_id}"),
-    )
-    .await?;
-    assert_eq!(status, StatusCode::NOT_FOUND);
+    assert!(!rows[0].has_screenshot);
     drop(mock);
     Ok(())
 }
 
 #[tokio::test]
-async fn cancel_endpoint_aborts_in_flight_dispatch() -> anyhow::Result<()> {
+async fn canonical_cancel_endpoint_aborts_in_flight_dispatch() -> anyhow::Result<()> {
     let mock = MockCdp::start().await?;
     let app = test_app_with_cdp_port(mock.cdp_port, false).await?;
     app.state.browser.connect_once_for_testing().await?;
     wait_for_cdp_connected(&app).await?;
     let session_id = initialize_mcp(&app).await?;
-    let session = app
-        .state
-        .sessions
-        .lookup(&SessionId::new(session_id.clone()))
-        .await
-        .ok_or_else(|| anyhow::anyhow!("missing test session"))?;
-    let agent_id = session.convo_id().as_str().to_string();
-
     let (status, _headers, body) = request_json_with_headers(
         &app.router,
         "POST",
@@ -1126,11 +903,11 @@ async fn cancel_endpoint_aborts_in_flight_dispatch() -> anyhow::Result<()> {
         let (status, body) = request_json(
             &app.router,
             "POST",
-            &format!("/agents/{agent_id}/cancel"),
+            &format!("/api/v1/sessions/{session_id}/cancel"),
             None,
         )
         .await?;
-        if status == StatusCode::OK {
+        if status == StatusCode::OK && body["cancelled"] == 1 {
             cancelled = Some(body);
             break;
         }
@@ -1148,12 +925,12 @@ async fn cancel_endpoint_aborts_in_flight_dispatch() -> anyhow::Result<()> {
     );
     assert!(wait_body["result"].get("structuredContent").is_none());
 
-    let (status, dispatches) = request_json(&app.router, "GET", "/audit/dispatches", None).await?;
-    assert_eq!(status, StatusCode::OK);
-    let cancellation_meta = dispatches["rows"]
-        .as_array()
-        .and_then(|rows| rows.iter().find(|row| row["toolName"] == "wait"))
-        .and_then(|row| row["resultMeta"].as_str())
+    let dispatches = app.state.audit.list_dispatches(Default::default()).await?;
+    let cancellation_meta = dispatches
+        .rows
+        .iter()
+        .find(|row| row.tool_name == "wait")
+        .and_then(|row| row.result_meta.as_deref())
         .ok_or_else(|| anyhow::anyhow!("missing cancellation audit row"))?;
     let cancellation_meta: Value = serde_json::from_str(cancellation_meta)?;
     assert_eq!(cancellation_meta["isError"], true);
@@ -1166,7 +943,7 @@ async fn cancel_endpoint_aborts_in_flight_dispatch() -> anyhow::Result<()> {
 }
 
 #[tokio::test]
-async fn tabs_activity_enriches_through_live_session_profile_identity() -> anyhow::Result<()> {
+async fn canonical_tabs_enrich_through_live_session_profile_identity() -> anyhow::Result<()> {
     let app = test_app().await?;
     let agents_dir = app.state.config.browserclaw_dir.join("agents");
     tokio::fs::create_dir_all(&agents_dir).await?;
@@ -1241,29 +1018,29 @@ async fn tabs_activity_enriches_through_live_session_profile_identity() -> anyho
         })
         .await;
 
-    let (status, body) = request_json(&app.router, "GET", "/tabs/activity", None).await?;
+    let (status, body) = request_json(&app.router, "GET", "/api/v1/tabs", None).await?;
     assert_eq!(status, StatusCode::OK);
-    let rows = body["tabs"]
+    let rows = body["items"]
         .as_array()
         .ok_or_else(|| anyhow::anyhow!("tabs not array"))?;
     let exact = rows
         .iter()
         .find(|row| row["targetId"] == "target-exact")
         .ok_or_else(|| anyhow::anyhow!("missing exact tab"))?;
-    assert_eq!(exact["agentLabel"], "Stored Agent");
+    assert_eq!(exact["label"], "Stored Agent");
     assert_eq!(exact["harness"], "Codex");
 
     let fallback = rows
         .iter()
         .find(|row| row["targetId"] == "target-fallback")
         .ok_or_else(|| anyhow::anyhow!("missing fallback tab"))?;
-    assert_eq!(fallback["agentLabel"], "mcp");
+    assert_eq!(fallback["label"], "mcp");
     assert!(fallback["harness"].is_null());
     Ok(())
 }
 
 #[tokio::test]
-async fn tabs_activity_embeds_polled_screenshot_frames() -> anyhow::Result<()> {
+async fn canonical_tabs_expose_polled_screenshot_previews() -> anyhow::Result<()> {
     let mock = MockCdp::start().await?;
     mock.add_tab(1, "target-1", 1).await;
     mock.add_tab(2, "target-2", 2).await;
@@ -1294,33 +1071,27 @@ async fn tabs_activity_embeds_polled_screenshot_frames() -> anyhow::Result<()> {
         .clone()
         .start(app.state.browser.clone(), app.state.tab_activity.clone());
 
-    let mut last_frames: Vec<(String, Option<Value>)> = Vec::new();
+    let mut last_previews: Vec<(String, Option<i64>)> = Vec::new();
     let mut done = false;
     for _ in 0..100 {
-        let (status, body) = request_json(&app.router, "GET", "/tabs/activity", None).await?;
+        let (status, body) = request_json(&app.router, "GET", "/api/v1/tabs", None).await?;
         assert_eq!(status, StatusCode::OK);
-        let rows = body["tabs"]
+        let rows = body["items"]
             .as_array()
             .ok_or_else(|| anyhow::anyhow!("tabs not array"))?;
-        last_frames = rows
+        last_previews = rows
             .iter()
             .map(|row| {
                 (
                     row["targetId"].as_str().unwrap_or_default().to_string(),
-                    (!row["screencast"].is_null()).then(|| row["screencast"].clone()),
+                    row["previewCapturedAt"].as_i64(),
                 )
             })
             .collect();
-        let frame_data = |target: &str| {
-            last_frames
+        if last_previews.len() == 2
+            && last_previews
                 .iter()
-                .find(|(target_id, _)| target_id == target)
-                .and_then(|(_, frame)| frame.as_ref())
-                .and_then(|frame| frame["jpegBase64"].as_str())
-                .map(str::to_string)
-        };
-        if frame_data("target-1").as_deref() == Some("anBlZw==")
-            && frame_data("target-2").as_deref() == Some("anBlZw==")
+                .all(|(_, captured_at)| captured_at.is_some())
         {
             done = true;
             break;
@@ -1329,16 +1100,22 @@ async fn tabs_activity_embeds_polled_screenshot_frames() -> anyhow::Result<()> {
     }
     assert!(
         done,
-        "polled frames never reached /tabs/activity; last: {last_frames:?}"
+        "polled frames never reached /api/v1/tabs; last: {last_previews:?}"
     );
 
-    for (_, frame) in &last_frames {
-        let frame = frame
-            .as_ref()
-            .ok_or_else(|| anyhow::anyhow!("missing screencast frame"))?;
-        assert_eq!(frame.as_object().map(serde_json::Map::len), Some(2));
-        assert!(frame["capturedAt"].as_i64().is_some_and(|at| at > 0));
-        assert_eq!(frame["jpegBase64"], "anBlZw==");
+    for (_, captured_at) in &last_previews {
+        assert!(captured_at.is_some_and(|at| at > 0));
+    }
+    for page_id in [1, 2] {
+        assert_eq!(
+            request_status(
+                &app.router,
+                "GET",
+                &format!("/api/v1/tabs/{page_id}/preview"),
+            )
+            .await?,
+            StatusCode::OK
+        );
     }
 
     let captures = mock.captures.lock().await.clone();

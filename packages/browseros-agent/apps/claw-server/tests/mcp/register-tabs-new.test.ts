@@ -9,7 +9,7 @@
  * navigate, etc) because `extractPageId` reads `page` from input
  * args, and `tabs new` carries no `page` in its input (the page id
  * is born in the result). Post-fix, the result-side pageId is
- * also written to the registry so `/tabs/activity` reflects the
+ * also written to the registry so `/api/v1/tabs` reflects the
  * tab the moment it opens.
  *
  * Mock `executeTool` at the

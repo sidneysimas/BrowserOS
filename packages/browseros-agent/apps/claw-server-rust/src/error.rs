@@ -125,7 +125,7 @@ pub struct RequestId(pub String);
 
 /// The canonical routes' error dialect: the contract's `ApiError`
 /// envelope (`code` / `message` / `requestId`), as opposed to the
-/// legacy `{ "error": … }` body `AppError` renders. Handlers on the
+/// generic `{ "error": … }` body `AppError` renders. Handlers on the
 /// canonical surface must fail through this type so error responses
 /// stay in-contract.
 pub struct CanonicalError {

@@ -34,6 +34,25 @@ const FORBIDDEN_IDENTITY_KEYS = ['agent', 'task', 'run'].map(
   (scope) => `${scope}Id`,
 )
 const INLINE_JPEG_KEY = ['jpeg', 'Base64'].join('')
+const RETIRED_ROUTES = [
+  ['GET', '/system/version'],
+  ['GET', '/system/url'],
+  ['GET', '/system/telemetry'],
+  ['POST', '/system/telemetry'],
+  ['POST', '/agents/agent-1/cancel'],
+  ['GET', '/tabs/activity'],
+  ['GET', '/connections'],
+  ['POST', '/connections/NotAHarness/connect'],
+  ['POST', '/connections/NotAHarness/disconnect'],
+  ['GET', '/audit/dispatches'],
+  ['GET', '/audit/tasks'],
+  ['GET', '/audit/tasks/session-1'],
+  ['GET', '/audit/screenshot/1'],
+  ['GET', '/recordings/health'],
+  ['POST', '/recordings/tabs/1/events'],
+  ['GET', '/audit/replays/session-1'],
+  ['GET', '/audit/replays/session-1/meta'],
+] as const
 
 export const contractCases: ContractCase[] = [
   {
@@ -226,6 +245,19 @@ export const contractCases: ContractCase[] = [
         const response = await fetch(`${baseUrl}${path}`)
         expect(response.status, path).toBe(404)
         expect(await response.json(), path).toMatchObject({ code })
+      }
+    },
+  },
+  {
+    name: 'retired REST aliases',
+    async run({ baseUrl }) {
+      for (const [method, path] of RETIRED_ROUTES) {
+        const response = await fetch(`${baseUrl}${path}`, { method })
+        expect(response.status, `${method} ${path}`).toBe(404)
+        expect(
+          response.headers.get('content-type') ?? '',
+          `${method} ${path}`,
+        ).not.toContain('application/json')
       }
     },
   },

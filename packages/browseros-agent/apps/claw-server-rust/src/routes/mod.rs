@@ -1,11 +1,4 @@
-mod agents;
 mod api_v1;
-mod audit;
-mod connections;
-mod replay;
-mod system;
-mod tabs;
-mod wire;
 
 use crate::{
     AppState,
@@ -18,7 +11,6 @@ use axum::{
     http::{HeaderValue, Method, StatusCode, header},
     middleware::{self, Next},
     response::{IntoResponse, Response},
-    routing::{get, post},
 };
 use std::time::Instant;
 use tracing::{Instrument, info_span};
@@ -27,31 +19,6 @@ use ulid::Ulid;
 pub fn router(state: AppState) -> Router<AppState> {
     Router::new()
         .merge(api_v1::router())
-        .route("/system/version", get(system::version))
-        .route("/system/url", get(system::url))
-        .route(
-            "/system/telemetry",
-            get(system::telemetry).post(system::telemetry_consent),
-        )
-        .route("/agents/{agent_id}/cancel", post(agents::cancel))
-        .route("/tabs/activity", get(tabs::activity))
-        .route("/connections", get(connections::list))
-        .route("/connections/{harness}/connect", post(connections::connect))
-        .route(
-            "/connections/{harness}/disconnect",
-            post(connections::disconnect),
-        )
-        .route("/audit/dispatches", get(audit::dispatches))
-        .route("/audit/tasks", get(audit::tasks))
-        .route("/audit/tasks/{session_id}", get(audit::task_detail))
-        .route("/audit/screenshot/{dispatch_id}", get(audit::screenshot))
-        .route("/recordings/health", get(replay::recordings_health))
-        .route(
-            "/recordings/tabs/{tab_id}/events",
-            post(replay::post_recording_events),
-        )
-        .route("/audit/replays/{session_id}", get(replay::get))
-        .route("/audit/replays/{session_id}/meta", get(replay::meta))
         .nest_service(
             "/mcp",
             Router::new()

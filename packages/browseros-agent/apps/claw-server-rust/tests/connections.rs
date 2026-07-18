@@ -181,20 +181,17 @@ async fn run_connections_case() -> anyhow::Result<()> {
     assert_eq!(codex.message, "Codex is not configured.");
 
     let router = test_router(&browserclaw_dir, &home).await?;
-    let (status, listed) = request_json(&router, "GET", "/connections").await?;
+    let (status, listed) = request_json(&router, "GET", "/api/v1/connections").await?;
     assert_eq!(status, StatusCode::OK);
-    assert_eq!(listed["connections"].as_array().map(Vec::len), Some(7));
-    assert_eq!(listed["connections"][0]["harness"], "Claude Code");
-    assert_eq!(listed["connections"][0]["agentId"], "claude-code");
+    assert_eq!(listed["items"].as_array().map(Vec::len), Some(7));
+    assert_eq!(listed["items"][0]["harness"], "Claude Code");
 
-    let (status, connected) =
-        request_json(&router, "POST", "/connections/VS%20Code/connect").await?;
+    let (status, connected) = request_json(&router, "PUT", "/api/v1/connections/VS%20Code").await?;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(connected["harness"], "VS Code");
-    assert_eq!(connected["agentId"], "vscode");
     assert_eq!(connected["installed"], true);
     let (status, disconnected) =
-        request_json(&router, "POST", "/connections/VS%20Code/disconnect").await?;
+        request_json(&router, "DELETE", "/api/v1/connections/VS%20Code").await?;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(disconnected["installed"], false);
 

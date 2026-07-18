@@ -133,6 +133,35 @@ async fn seed_dispatch(app: &TestApp, session_id: &str) -> anyhow::Result<i64> {
 }
 
 #[tokio::test]
+async fn retired_rest_routes_are_unmounted() -> anyhow::Result<()> {
+    let app = test_app().await?;
+    for (method, path) in [
+        ("GET", "/system/version"),
+        ("GET", "/system/url"),
+        ("GET", "/system/telemetry"),
+        ("POST", "/system/telemetry"),
+        ("POST", "/agents/agent-1/cancel"),
+        ("GET", "/tabs/activity"),
+        ("GET", "/connections"),
+        ("POST", "/connections/NotAHarness/connect"),
+        ("POST", "/connections/NotAHarness/disconnect"),
+        ("GET", "/audit/dispatches"),
+        ("GET", "/audit/tasks"),
+        ("GET", "/audit/tasks/session-1"),
+        ("GET", "/audit/screenshot/1"),
+        ("GET", "/recordings/health"),
+        ("POST", "/recordings/tabs/1/events"),
+        ("GET", "/audit/replays/session-1"),
+        ("GET", "/audit/replays/session-1/meta"),
+    ] {
+        let (status, _, bytes) = request(&app.router, method, path, None, Body::empty()).await?;
+        assert_eq!(status, StatusCode::NOT_FOUND, "{method} {path}");
+        assert!(bytes.is_empty(), "{method} {path} reached a JSON handler");
+    }
+    Ok(())
+}
+
+#[tokio::test]
 async fn canonical_control_settings_and_empty_lists() -> anyhow::Result<()> {
     let app = test_app().await?;
     let (status, _, bytes) =

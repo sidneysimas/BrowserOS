@@ -109,8 +109,7 @@ impl ScreencastService {
         self.inner.lock().await.frames.get(&page_id).cloned()
     }
 
-    /// Record a tab-listing read (`/tabs/activity` or `/api/v1/tabs`)
-    /// for the idle governor.
+    /// Record an `/api/v1/tabs` read for the idle governor.
     pub fn note_read(&self) {
         self.last_read_ms.store(now_epoch_ms(), Ordering::Relaxed);
     }

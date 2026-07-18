@@ -22,7 +22,7 @@
  * Identity is a single anonymous UUID generated once and persisted at
  * `<clawServerDir>/analytics.json` alongside the user's opt-out flag.
  * No `identify`, no PII. The same id is served to the cockpit UI via
- * `/system/telemetry` so both surfaces share one anonymous install.
+ * `/api/v1/settings/telemetry` so both surfaces share one anonymous install.
  *
  * Analytics is OFF unless a project write key is configured
  * (`CLAW_POSTHOG_KEY`), the operator kill-switch is on

@@ -200,7 +200,7 @@ async function snapOne(
       // Drop the cached frame once we cross the backoff threshold.
       // Holding on to the previous JPEG after the agent has navigated
       // away (e.g. into a cross-origin iframe that the screenshot
-      // path cannot capture) means /tabs/activity returns the OLD
+      // path cannot capture) means /api/v1/tabs returns the OLD
       // page's image with the NEW page's URL + title until backoff
       // lifts. One transient failure still keeps the frame (cheap
       // recovery for one-off CDP hiccups); sustained failures drop

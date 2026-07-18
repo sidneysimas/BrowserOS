@@ -3,8 +3,8 @@
 //! generated `claw_api` types end to end. The TS claw-server implements
 //! the same surface, and the cross-server contract suite runs the same
 //! cases against both. Besides `/api/v1/*` the contract also owns
-//! `/system/health` and `/system/shutdown`; the pre-contract
-//! diagnostics stay in `routes::system`.
+//! `/system/health` and `/system/shutdown`; these are the server's full
+//! REST surface.
 
 use crate::{
     AppState,

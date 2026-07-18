@@ -1,5 +1,17 @@
-import { describe, expect, it } from 'bun:test'
-import { isAcpProbeEnabled, resolveAcpAgentId } from './acp-probe.hooks'
+import { beforeAll, describe, expect, it, mock } from 'bun:test'
+
+mock.module('@/lib/browseros/helpers', () => ({
+  getAgentServerUrl: async () => 'http://127.0.0.1:9000',
+}))
+
+let isAcpProbeEnabled: typeof import('./acp-probe.hooks').isAcpProbeEnabled
+let resolveAcpAgentId: typeof import('./acp-probe.hooks').resolveAcpAgentId
+
+beforeAll(async () => {
+  ;({ isAcpProbeEnabled, resolveAcpAgentId } = await import(
+    './acp-probe.hooks'
+  ))
+})
 
 describe('resolveAcpAgentId', () => {
   it('returns the built-in claude id for claude-code', () => {

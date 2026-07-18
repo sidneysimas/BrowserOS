@@ -14,6 +14,7 @@ import {
   recordingStore,
 } from './recordings'
 
+/** Includes recorder events already in flight when a claim closes. */
 const RELEASE_TAIL_MS = 5_000
 
 export interface ReplayEvent extends RecordedEvent {
@@ -77,6 +78,8 @@ export function createReplayService(
           }))
         }),
       )
+      // Stable timestamp merge preserves a target slice's order when rrweb
+      // events from one or more targets share the same millisecond.
       return slices.flat().sort((a, b) => a.ts - b.ts)
     },
     getMeta(sessionId) {

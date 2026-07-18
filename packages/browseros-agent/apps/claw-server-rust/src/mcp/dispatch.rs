@@ -36,6 +36,7 @@ pub struct ToolFlags {
 pub struct ToolIdentity {
     pub session: Arc<Session>,
     pub agent: ClientIdentity,
+    /// Per-conversation key; distinct from transport-session and profile ids.
     pub ownership_key: ConvoId,
     pub agent_label: String,
 }

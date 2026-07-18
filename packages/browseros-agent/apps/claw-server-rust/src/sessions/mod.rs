@@ -40,8 +40,9 @@ struct RetainedSession {
     ended_at: Instant,
 }
 
-/// Owns live MCP sessions and their lifecycle. Minting resolves conversation identity and records
-/// the audit start; remove, sweep, and shutdown release claims, record the end, and release tabs.
+/// Owns live MCP sessions and retained conversation state. Minting resolves identity and records
+/// the audit start; teardown closes replay and audit state, then retains browser groups until a
+/// later reap succeeds.
 pub struct Sessions {
     sessions: RwLock<HashMap<SessionId, Arc<Session>>>,
     ownership: Arc<PageOwnership>,

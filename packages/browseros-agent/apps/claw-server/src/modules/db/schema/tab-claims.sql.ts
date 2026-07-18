@@ -6,6 +6,10 @@
 
 import { index, integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'
 
+/**
+ * Epoch-millisecond attribution windows from server-owned MCP sessions to CDP
+ * targets. `releasedAt` stays null while the session still controls the target.
+ */
 export const tabClaims = sqliteTable(
   'tab_claims',
   {

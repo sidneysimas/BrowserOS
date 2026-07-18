@@ -30,6 +30,8 @@ export function createRecordingsRoute(deps: RecordingsRouteDeps) {
       const body = await readBodyWithinLimit(c.req.raw, MAX_BODY_BYTES)
       if (body === null) return c.body(null, 413)
 
+      // The relay knows the sender's Chrome tab id; the server resolves the
+      // stable target so recorder payloads never choose their storage key.
       const tabIdParam = c.req.param('tabId')
       const tabId = /^\d+$/.test(tabIdParam) ? Number(tabIdParam) : Number.NaN
       const targetId = Number.isSafeInteger(tabId)
@@ -41,6 +43,8 @@ export function createRecordingsRoute(deps: RecordingsRouteDeps) {
 
       const events = parseEvents(body)
       if (events.length === 0) return c.json({ ok: true, accepted: 0 })
+      // Batch ids are target-scoped retry tokens. A missing header preserves
+      // the append-only behavior of older or independent ingest clients.
       const batchId = c.req.raw.headers.get('x-recording-batch-id') ?? undefined
       try {
         const appended = await deps.recordingStore.appendBatch(
@@ -62,6 +66,7 @@ export function createRecordingsRoute(deps: RecordingsRouteDeps) {
     })
 }
 
+/** Keeps recorder data only; identity comes from route context and server claim state. */
 function parseEvents(body: string): RecordingEventInput[] {
   const events: RecordingEventInput[] = []
   for (const line of body.split('\n')) {

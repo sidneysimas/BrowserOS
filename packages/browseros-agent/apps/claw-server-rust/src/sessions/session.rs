@@ -14,6 +14,9 @@ use tokio::{
 };
 use tokio_util::sync::CancellationToken;
 
+/// Runtime state for one MCP transport session.
+/// Its `SessionId` owns transport and audit lifetime; its `ConvoId` separately
+/// keys tab ownership.
 pub struct Session {
     id: SessionId,
     agent: ClientIdentity,

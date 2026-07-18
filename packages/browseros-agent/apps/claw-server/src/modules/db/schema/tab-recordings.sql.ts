@@ -6,6 +6,10 @@
 
 import { index, integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'
 
+/**
+ * Catalog for one target-keyed NDJSON file per row. Event bounds are Unix epoch
+ * milliseconds; counts and bytes describe the whole file, not a claim window.
+ */
 export const tabRecordings = sqliteTable(
   'tab_recordings',
   {

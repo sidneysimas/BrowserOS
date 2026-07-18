@@ -55,6 +55,9 @@ fn pick<'a>(words: &'a [&str], draw: f64) -> &'a str {
     words.get(index).copied().unwrap_or(words[0])
 }
 
+/// Per-conversation ownership and naming identity.
+/// The conversation id stays fixed when `rename` changes only the
+/// operator-facing label.
 #[derive(Debug)]
 pub struct ConversationIdentity {
     convo_id: ConvoId,

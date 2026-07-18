@@ -17,6 +17,9 @@ pub struct ProfileView {
     pub name: String,
 }
 
+/// Profile and display identity resolved from MCP client metadata.
+/// Per-conversation ownership uses `ConversationIdentity` even when this
+/// resolves the same profile.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum ClientIdentity {

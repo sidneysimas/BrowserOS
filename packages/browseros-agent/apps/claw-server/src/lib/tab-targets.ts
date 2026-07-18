@@ -33,6 +33,7 @@ interface TabTargetMapOptions {
   now?: () => number
 }
 
+/** Keeps teardown-time recorder flushes resolvable; claims still close immediately. */
 const GRACE_MS = 5 * 60 * 1_000
 
 /** Maintains the browser tab id to stable CDP target id identity boundary. */

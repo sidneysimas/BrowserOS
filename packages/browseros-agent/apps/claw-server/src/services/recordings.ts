@@ -85,7 +85,15 @@ export function createRecordingStore(
   const idleHandleMs = options.idleHandleMs ?? IDLE_HANDLE_MS
   const getDb = options.getDb ?? getAuditDb
   const openHandles = new Map<string, OpenEntry>()
+  /**
+   * Serializes each target's append, retention, and dedupe state so concurrent
+   * relay retries cannot interleave writes or both pass the acceptance check.
+   */
   const chains = new Map<string, Promise<unknown>>()
+  /**
+   * Successful batch ids stay process-local and bounded: enough to absorb
+   * relay retries without turning every target into unbounded durable state.
+   */
   const acceptedBatchIds = new Map<string, Map<string, undefined>>()
 
   function hasAcceptedBatchId(targetId: string, batchId: string): boolean {
@@ -195,6 +203,8 @@ export function createRecordingStore(
     }
     const sizeBytes = Buffer.byteLength(payload)
     const entry = await openForAppend(targetId)
+    // The NDJSON append and SQLite catalog cannot share a transaction. Retain
+    // the byte boundary so a catalog failure can restore the file first.
     let originalSize: number | null = null
     try {
       originalSize = (await entry.handle.stat()).size
@@ -299,6 +309,8 @@ export function createRecordingStore(
   return {
     appendBatch(targetId, tabId, events, batchId) {
       return enqueue(targetId, async () => {
+        // Check and remember share the target chain; remember only after append
+        // succeeds so a failed delivery remains retryable.
         if (batchId !== undefined && hasAcceptedBatchId(targetId, batchId)) {
           return false
         }

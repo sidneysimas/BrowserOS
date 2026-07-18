@@ -4,6 +4,9 @@ use browseros_core::PageId;
 use std::collections::{BTreeSet, HashMap};
 use tokio::sync::RwLock;
 
+/// Conversation-keyed BrowserOS page ownership and browser tab-group state.
+/// Both ownership indexes share this lock so page reassignment cannot expose
+/// mismatched views.
 #[derive(Debug, Default)]
 pub struct PageOwnership {
     inner: RwLock<Inner>,
@@ -29,6 +32,8 @@ pub struct TabGroup {
     pub title: TitleSync,
 }
 
+/// Desired browser group-title state. `Pending` survives disconnects until the
+/// matching group and title are confirmed, so stale work cannot acknowledge a newer rename.
 #[derive(Debug, Clone, Default, Eq, PartialEq)]
 pub enum TitleSync {
     #[default]

@@ -40,7 +40,7 @@ export function TaskHeader({ task }: TaskHeaderProps) {
   const replayMeta = useReplayMetadata({
     variables: { sessionId: task.sessionId },
   })
-  const replayReady = replayMeta.data?.hasData === true
+  const replayReady = replayMeta.data?.exists === true
 
   return (
     <section className="space-y-4">

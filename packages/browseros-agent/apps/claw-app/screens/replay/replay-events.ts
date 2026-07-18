@@ -4,41 +4,55 @@
  * SPDX-License-Identifier: AGPL-3.0-or-later
  */
 
-import type { ReplayEvent } from '@/modules/api/replay.hooks'
+import type {
+  ReplayEvent,
+  ReplayTargetMetadata,
+} from '@/modules/api/replay.hooks'
 
 export const EMPTY_REPLAY_EVENTS: readonly ReplayEvent[] = []
 
-export interface ReplayEventTabs {
-  tabPageIds: number[]
-  eventsForTab: (tabPageId: number) => readonly ReplayEvent[]
+export interface ReplayEventTargets {
+  targetIds: string[]
+  eventsForTarget: (targetId: string) => readonly ReplayEvent[]
 }
 
-/** Groups rrweb events by tab while preserving each tab array's identity. */
-export function buildReplayEventTabs(
+/** Groups rrweb events by target while preserving each target array's identity. */
+export function buildReplayEventTargets(
   events: readonly ReplayEvent[],
-): ReplayEventTabs {
+): ReplayEventTargets {
   if (events.length === 0) {
     return {
-      tabPageIds: [],
-      eventsForTab: () => EMPTY_REPLAY_EVENTS,
+      targetIds: [],
+      eventsForTarget: () => EMPTY_REPLAY_EVENTS,
     }
   }
 
-  const tabPageIds: number[] = []
-  const eventsByTab = new Map<number, ReplayEvent[]>()
+  const targetIds: string[] = []
+  const eventsByTarget = new Map<string, ReplayEvent[]>()
   for (const event of events) {
-    const list = eventsByTab.get(event.tabPageId)
+    const list = eventsByTarget.get(event.targetId)
     if (list) {
       list.push(event)
     } else {
-      eventsByTab.set(event.tabPageId, [event])
-      tabPageIds.push(event.tabPageId)
+      eventsByTarget.set(event.targetId, [event])
+      targetIds.push(event.targetId)
     }
   }
 
   return {
-    tabPageIds,
-    eventsForTab: (tabPageId) =>
-      eventsByTab.get(tabPageId) ?? EMPTY_REPLAY_EVENTS,
+    targetIds,
+    eventsForTarget: (targetId) =>
+      eventsByTarget.get(targetId) ?? EMPTY_REPLAY_EVENTS,
   }
+}
+
+/** Returns metadata-ordered targets, falling back to stream discovery. */
+export function buildReplayTargetIds(
+  targets: readonly ReplayTargetMetadata[] | undefined,
+  discoveredTargetIds: readonly string[],
+): string[] {
+  if (!targets) return [...discoveredTargetIds]
+  return [...targets]
+    .sort((a, b) => a.firstEventAt - b.firstEventAt)
+    .map((target) => target.targetId)
 }

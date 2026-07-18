@@ -8,7 +8,7 @@ import type { ReplayEvent, ReplayFrame } from '@/modules/api/replay.hooks'
 
 /**
  * A single tab's replay view. All fields are scoped to one
- * `tabPageId`:
+ * target:
  *   - `frames`: filtered AND time-shifted so `t=0` is the tab's
  *     first activity, not session start.
  *   - `events`: pass-through. rrweb treats the first event's `ts`
@@ -29,21 +29,19 @@ export const EMPTY_TAB_VIEW: TabView = {
 }
 
 export interface BuildTabViewInput {
-  /** Session-scoped frames (any pageId). */
   frames: ReplayFrame[]
-  eventsForTab: (tabPageId: number) => readonly ReplayEvent[]
-  /** Session start in ms since epoch. Anchor for frame `t` values. */
+  eventsForTarget: (targetId: string) => readonly ReplayEvent[]
   startedAtMs: number
 }
 
 /** Builds the frame/event/duration view for the selected replay tab. */
 export function buildTabView(
   input: BuildTabViewInput,
-  tabPageId: number | null,
+  targetId: string | null,
 ): TabView {
-  if (tabPageId === null) return EMPTY_TAB_VIEW
-  const rawFrames = input.frames.filter((f) => f.pageId === tabPageId)
-  const events = input.eventsForTab(tabPageId)
+  if (targetId === null) return EMPTY_TAB_VIEW
+  const rawFrames = input.frames.filter((frame) => frame.targetId === targetId)
+  const events = input.eventsForTarget(targetId)
   if (rawFrames.length === 0 && events.length === 0) return EMPTY_TAB_VIEW
   const startedMs = input.startedAtMs
   const originMs =
@@ -61,4 +59,36 @@ export function buildTabView(
     t: Math.max(0, f.t - originT),
   }))
   return { frames, events, totalSeconds }
+}
+
+export interface TargetSeek {
+  targetId: string | null
+  seconds: number
+}
+
+/** Resolves a session frame to its target and target-relative playback time. */
+export function targetSeekForFrame(
+  input: BuildTabViewInput,
+  selectedTargetId: string | null,
+  frame: ReplayFrame,
+): TargetSeek {
+  const targetId = frame.targetId ?? selectedTargetId
+  if (targetId === null) return { targetId, seconds: frame.t }
+
+  const targetFrames = input.frames.filter(
+    (candidate) => candidate.targetId === targetId,
+  )
+  if (frame.targetId == null) {
+    const targetEvents = input.eventsForTarget(targetId)
+    const originT =
+      targetEvents.length > 0
+        ? ((targetEvents[0]?.ts ?? input.startedAtMs) - input.startedAtMs) /
+          1000
+        : (targetFrames[0]?.t ?? 0)
+    return { targetId, seconds: Math.max(0, frame.t - originT) }
+  }
+  const targetFrameIndex = targetFrames.indexOf(frame)
+  const targetView = buildTabView(input, targetId)
+  const shiftedFrame = targetView.frames[targetFrameIndex]
+  return { targetId, seconds: shiftedFrame?.t ?? frame.t }
 }

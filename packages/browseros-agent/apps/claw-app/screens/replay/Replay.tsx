@@ -10,45 +10,63 @@ import { useLocation } from 'react-router'
 import { StatusBadge } from '@/components/cockpit/StatusBadge'
 import { Spinner } from '@/components/ui/spinner'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import type { ReplayFrame } from '@/modules/api/replay.hooks'
 import { EventTimeline } from './EventTimeline'
 import { PlaybackTransport } from './PlaybackTransport'
 import { type ReplayPlayerHandle, ReplayViewport } from './ReplayViewport'
 import { buildTabView, EMPTY_TAB_VIEW, useReplayData } from './replay.data'
 import { frameIndexAt } from './replay.helpers'
+import { targetSeekForFrame } from './tab-view'
 import { usePlayback } from './use-playback'
 
 /** Renders the audit replay page and syncs rrweb playback to the transport UI. */
 export function Replay() {
   const { replay, isLoading, navigate } = useReplayData()
   const location = useLocation()
-  const [selectedTabPageId, setSelectedTabPageId] = useState<number | null>(
-    null,
-  )
+  const [selectedTargetId, setSelectedTargetId] = useState<string | null>(null)
   const playerHandleRef = useRef<ReplayPlayerHandle | null>(null)
   const playbackTimeRef = useRef(0)
   const playbackSpeedRef = useRef(1)
   const playbackIsPlayingRef = useRef(true)
-  const hasInitializedTabRef = useRef(false)
+  const pendingTargetSeekRef = useRef<number | null>(null)
 
   useEffect(() => {
-    if (selectedTabPageId !== null) return
-    if (!replay || replay.tabPageIds.length === 0) return
-    setSelectedTabPageId(replay.tabPageIds[0])
-  }, [replay, selectedTabPageId])
+    if (!replay) return
+    const firstTargetId = replay.targetIds[0] ?? null
+    if (firstTargetId === null) {
+      if (selectedTargetId !== null) {
+        pendingTargetSeekRef.current = 0
+        setSelectedTargetId(null)
+      }
+      return
+    }
+    if (selectedTargetId === null) {
+      setSelectedTargetId(firstTargetId)
+      return
+    }
+    if (!replay.targetIds.includes(selectedTargetId)) {
+      pendingTargetSeekRef.current = 0
+      setSelectedTargetId(firstTargetId)
+    }
+  }, [replay, selectedTargetId])
 
-  const perTabView = useMemo(
+  const tabViewInput = useMemo(
     () =>
       replay
-        ? buildTabView(
-            {
-              frames: replay.frames,
-              eventsForTab: replay.eventsForTab,
-              startedAtMs: replay.startedAtMs,
-            },
-            selectedTabPageId,
-          )
+        ? {
+            frames: replay.frames,
+            eventsForTarget: replay.eventsForTarget,
+            startedAtMs: replay.startedAtMs,
+          }
+        : null,
+    [replay],
+  )
+  const perTabView = useMemo(
+    () =>
+      tabViewInput
+        ? buildTabView(tabViewInput, selectedTargetId)
         : EMPTY_TAB_VIEW,
-    [replay, selectedTabPageId],
+    [selectedTargetId, tabViewInput],
   )
 
   const playback = usePlayback(perTabView.totalSeconds)
@@ -65,20 +83,6 @@ export function Replay() {
   useEffect(() => {
     playbackIsPlayingRef.current = playback.isPlaying
   }, [playback.isPlaying])
-
-  // biome-ignore lint/correctness/useExhaustiveDependencies: tab changes are the only reset trigger; task-duration updates must not restart playback.
-  useEffect(() => {
-    if (selectedTabPageId === null) return
-    if (!hasInitializedTabRef.current) {
-      hasInitializedTabRef.current = true
-      playbackTimeRef.current = 0
-      return
-    }
-    const seconds = playback.seek(0)
-    playbackTimeRef.current = seconds
-    playbackIsPlayingRef.current = false
-    playerHandleRef.current?.seek(0)
-  }, [selectedTabPageId])
 
   useEffect(() => {
     if (!playerHandleRef.current) return
@@ -116,6 +120,47 @@ export function Replay() {
       playerHandleRef.current?.seek(next * 1000)
     },
     [playback.seek],
+  )
+
+  // biome-ignore lint/correctness/useExhaustiveDependencies: target changes must flush pending seeks even when both targets have the same duration.
+  useEffect(() => {
+    const pendingSeconds = pendingTargetSeekRef.current
+    if (pendingSeconds === null) return
+    pendingTargetSeekRef.current = null
+    seekTo(pendingSeconds)
+  }, [seekTo, selectedTargetId])
+
+  const selectTarget = useCallback(
+    (targetId: string) => {
+      if (targetId === selectedTargetId) {
+        seekTo(0)
+        return
+      }
+      pendingTargetSeekRef.current = 0
+      setSelectedTargetId(targetId)
+    },
+    [seekTo, selectedTargetId],
+  )
+
+  const selectFrame = useCallback(
+    (frame: ReplayFrame) => {
+      if (!tabViewInput) return
+      const targetSeek = targetSeekForFrame(
+        tabViewInput,
+        selectedTargetId,
+        frame,
+      )
+      if (
+        targetSeek.targetId !== null &&
+        targetSeek.targetId !== selectedTargetId
+      ) {
+        pendingTargetSeekRef.current = targetSeek.seconds
+        setSelectedTargetId(targetSeek.targetId)
+        return
+      }
+      seekTo(targetSeek.seconds)
+    },
+    [seekTo, selectedTargetId, tabViewInput],
   )
 
   const onPlayerReady = useCallback((handle: ReplayPlayerHandle | null) => {
@@ -156,6 +201,12 @@ export function Replay() {
     cameFromInAppFlow ? navigate(-1) : navigate(`/audit/${replay.sessionId}`)
   const currentTabFrameIndex = frameIndexAt(perTabView.frames, playback.time)
   const currentTabFrame = perTabView.frames[currentTabFrameIndex]
+  const currentTimelineFrameIndex =
+    currentTabFrame?.dispatchId !== undefined
+      ? replay.frames.findIndex(
+          (frame) => frame.dispatchId === currentTabFrame.dispatchId,
+        )
+      : -1
 
   const stats: { label: string; value: string }[] = [
     { label: 'Duration', value: replay.duration },
@@ -204,14 +255,11 @@ export function Replay() {
 
       <div className="flex min-h-0 flex-1">
         <div className="flex min-w-0 flex-1 flex-col gap-3 p-4">
-          {replay.tabPageIds.length > 1 && selectedTabPageId !== null && (
-            <Tabs
-              value={String(selectedTabPageId)}
-              onValueChange={(v) => setSelectedTabPageId(Number(v))}
-            >
+          {replay.targetIds.length > 1 && selectedTargetId !== null && (
+            <Tabs value={selectedTargetId} onValueChange={selectTarget}>
               <TabsList variant="line">
-                {replay.tabPageIds.map((id, idx) => (
-                  <TabsTrigger key={id} value={String(id)}>
+                {replay.targetIds.map((id, idx) => (
+                  <TabsTrigger key={id} value={id}>
                     Tab {idx + 1}
                   </TabsTrigger>
                 ))}
@@ -232,10 +280,9 @@ export function Replay() {
           />
         </div>
         <EventTimeline
-          frames={perTabView.frames}
-          currentFrameIndex={currentTabFrameIndex}
-          currentTime={playback.time}
-          onSeek={seekTo}
+          frames={replay.frames}
+          currentFrameIndex={currentTimelineFrameIndex}
+          onSelectFrame={selectFrame}
         />
       </div>
     </div>

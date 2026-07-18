@@ -18,11 +18,13 @@ import {
   type ReplayKind,
   type ReplayVerb,
   useReplayEvents,
+  useReplayMetadata,
 } from '@/modules/api/replay.hooks'
 import {
-  buildReplayEventTabs,
+  buildReplayEventTargets,
+  buildReplayTargetIds,
   EMPTY_REPLAY_EVENTS,
-  type ReplayEventTabs,
+  type ReplayEventTargets,
 } from './replay-events'
 
 export interface ReplayData {
@@ -47,10 +49,8 @@ export interface ReplayData {
   /** Total seconds the session covers, from start to last dispatch. */
   totalSeconds: number
   frames: ReplayFrame[]
-  /** Distinct tabPageIds with rrweb events. */
-  tabPageIds: number[]
-  /** Filter helper: events scoped to one tabPageId. */
-  eventsForTab: (tabPageId: number) => readonly ReplayEvent[]
+  targetIds: string[]
+  eventsForTarget: (targetId: string) => readonly ReplayEvent[]
 }
 
 // `buildTabView` and the `TabView` shape live in `./tab-view.ts` so
@@ -82,18 +82,27 @@ export function useReplayData(): UseReplayDataResult {
     variables: { sessionId },
     enabled: sessionId.length > 0,
   })
+  const metadataQuery = useReplayMetadata({
+    variables: { sessionId },
+    enabled: sessionId.length > 0,
+  })
 
   const events = eventsQuery.data?.events ?? EMPTY_REPLAY_EVENTS
-  const eventTabs = useMemo(() => buildReplayEventTabs(events), [events])
+  const eventTargets = useMemo(() => buildReplayEventTargets(events), [events])
+  const targetIds = useMemo(
+    () =>
+      buildReplayTargetIds(metadataQuery.data?.targets, eventTargets.targetIds),
+    [eventTargets.targetIds, metadataQuery.data?.targets],
+  )
   const replay = useMemo<ReplayData | null>(() => {
     if (!taskQuery.data) return null
-    return buildReplayData(taskQuery.data, eventTabs)
-  }, [taskQuery.data, eventTabs])
+    return buildReplayData(taskQuery.data, eventTargets, targetIds)
+  }, [taskQuery.data, eventTargets, targetIds])
 
   return {
     replay,
     sessionId,
-    isLoading: taskQuery.isLoading || eventsQuery.isLoading,
+    isLoading: taskQuery.isLoading,
     navigate,
   }
 }
@@ -101,7 +110,8 @@ export function useReplayData(): UseReplayDataResult {
 /** Converts task rows into replay metadata while reusing event buckets. */
 function buildReplayData(
   task: TaskDetail,
-  eventTabs: ReplayEventTabs,
+  eventTargets: ReplayEventTargets,
+  targetIds: string[],
 ): ReplayData {
   const sessionStartMs = task.startedAt
   const lastDispatchAt = task.dispatches.length
@@ -130,8 +140,8 @@ function buildReplayData(
     steps: String(task.dispatchCount),
     totalSeconds: totalMs / 1000,
     frames,
-    tabPageIds: eventTabs.tabPageIds,
-    eventsForTab: eventTabs.eventsForTab,
+    targetIds,
+    eventsForTarget: eventTargets.eventsForTarget,
   }
 }
 
@@ -176,6 +186,7 @@ function mapDispatchToFrame(
     caption,
     url: row.url,
     pageId: row.pageId,
+    targetId: row.targetId,
     note,
     dispatchId: row.id,
   }

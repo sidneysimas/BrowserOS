@@ -10,6 +10,10 @@
 
 export * from './agent-session-ends.sql'
 export * from './agent-session-starts.sql'
+export * from './recording-batches.sql'
+export * from './recording-payloads.sql'
+export * from './recording-streams.sql'
+export * from './session-tabs.sql'
 export * from './tab-claims.sql'
 export * from './tab-recordings.sql'
 export * from './tool-dispatches.sql'

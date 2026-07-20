@@ -4,8 +4,10 @@ use crate::{
         AuditDb,
         entities::{
             agent_session_ends, agent_session_starts,
-            prelude::{AgentSessionEnds, AgentSessionStarts, TabClaims, Tasks, ToolDispatches},
-            tab_claims, tasks, tool_dispatches,
+            prelude::{
+                AgentSessionEnds, AgentSessionStarts, SessionTabs, TabClaims, Tasks, ToolDispatches,
+            },
+            session_tabs, tab_claims, tasks, tool_dispatches,
         },
     },
     error::AppResult,
@@ -36,7 +38,7 @@ pub struct AuditService {
 
 #[derive(Debug)]
 enum ClaimWrite {
-    Claim {
+    ClaimTarget {
         target_id: String,
         session_id: String,
         agent_id: String,
@@ -48,9 +50,28 @@ enum ClaimWrite {
     },
     ReleaseSession {
         session_id: String,
+        released_at: i64,
     },
     ReleaseTarget {
         target_id: String,
+    },
+    ClaimTab {
+        tab_id: i64,
+        opened_target_id: Option<String>,
+        session_id: String,
+        agent_id: String,
+        claimed_at: i64,
+    },
+    InheritTab {
+        opener_tab_id: i64,
+        tab_id: i64,
+        opened_target_id: String,
+        claimed_at: i64,
+    },
+    ReleaseTabForSession {
+        tab_id: i64,
+        session_id: String,
+        released_at: i64,
     },
     Flush(oneshot::Sender<()>),
 }
@@ -63,6 +84,7 @@ pub struct RecordToolDispatchInput {
     pub session_id: String,
     pub tool_name: String,
     pub page_id: Option<i64>,
+    pub tab_id: Option<i64>,
     pub target_id: Option<String>,
     pub url: Option<String>,
     pub title: Option<String>,
@@ -258,6 +280,7 @@ impl AuditService {
             session_id: Set(input.session_id),
             tool_name: Set(input.tool_name),
             page_id: Set(input.page_id),
+            tab_id: Set(input.tab_id),
             target_id: Set(input.target_id),
             url: Set(input.url),
             title: Set(input.title),
@@ -373,7 +396,7 @@ impl AuditService {
 
     /// Closes every open claim when an MCP session ends.
     pub async fn release_claims_for_session(&self, session_id: &str) -> AppResult<u64> {
-        release_claims_for_session(self.db.connection(), session_id).await
+        release_claims_for_session(self.db.connection(), session_id, now_epoch_ms()).await
     }
 
     pub fn enqueue_claim_target_for_session(
@@ -383,7 +406,7 @@ impl AuditService {
         agent_id: String,
         claimed_at: i64,
     ) {
-        self.enqueue_claim_write(ClaimWrite::Claim {
+        self.enqueue_claim_write(ClaimWrite::ClaimTarget {
             target_id,
             session_id,
             agent_id,
@@ -399,11 +422,54 @@ impl AuditService {
     }
 
     pub fn enqueue_release_claims_for_session(&self, session_id: String) {
-        self.enqueue_claim_write(ClaimWrite::ReleaseSession { session_id });
+        self.enqueue_claim_write(ClaimWrite::ReleaseSession {
+            session_id,
+            released_at: now_epoch_ms(),
+        });
     }
 
     pub fn enqueue_release_claims_for_target(&self, target_id: String) {
         self.enqueue_claim_write(ClaimWrite::ReleaseTarget { target_id });
+    }
+
+    pub fn enqueue_claim_tab_for_session(
+        &self,
+        tab_id: i64,
+        opened_target_id: Option<String>,
+        session_id: String,
+        agent_id: String,
+        claimed_at: i64,
+    ) {
+        self.enqueue_claim_write(ClaimWrite::ClaimTab {
+            tab_id,
+            opened_target_id,
+            session_id,
+            agent_id,
+            claimed_at,
+        });
+    }
+
+    pub fn enqueue_inherit_tab_ownership(
+        &self,
+        opener_tab_id: i64,
+        tab_id: i64,
+        opened_target_id: String,
+        claimed_at: i64,
+    ) {
+        self.enqueue_claim_write(ClaimWrite::InheritTab {
+            opener_tab_id,
+            tab_id,
+            opened_target_id,
+            claimed_at,
+        });
+    }
+
+    pub fn enqueue_release_tab_for_session(&self, tab_id: i64, session_id: String) {
+        self.enqueue_claim_write(ClaimWrite::ReleaseTabForSession {
+            tab_id,
+            session_id,
+            released_at: now_epoch_ms(),
+        });
     }
 
     pub async fn drain_claim_writes(&self) {
@@ -421,12 +487,20 @@ impl AuditService {
 
     /// Closes claims left open across an unclean server shutdown.
     pub async fn release_all_open_claims(&self) -> AppResult<u64> {
-        let result = TabClaims::update_many()
+        let target_result = TabClaims::update_many()
             .col_expr(tab_claims::Column::ReleasedAt, Expr::value(now_epoch_ms()))
             .filter(tab_claims::Column::ReleasedAt.is_null())
             .exec(self.db.connection())
             .await?;
-        Ok(result.rows_affected)
+        let tab_result = SessionTabs::update_many()
+            .col_expr(
+                session_tabs::Column::ReleasedAt,
+                Expr::value(now_epoch_ms()),
+            )
+            .filter(session_tabs::Column::ReleasedAt.is_null())
+            .exec(self.db.connection())
+            .await?;
+        Ok(target_result.rows_affected + tab_result.rows_affected)
     }
 
     /// Lists dispatches using stable descending-id cursor pagination.
@@ -556,7 +630,7 @@ async fn run_claim_writes(db: AuditDb, mut receiver: mpsc::UnboundedReceiver<Cla
             write => write,
         };
         let result = match &write {
-            ClaimWrite::Claim {
+            ClaimWrite::ClaimTarget {
                 target_id,
                 session_id,
                 agent_id,
@@ -576,16 +650,54 @@ async fn run_claim_writes(db: AuditDb, mut receiver: mpsc::UnboundedReceiver<Cla
             } => release_target_for_session(db.connection(), target_id, session_id)
                 .await
                 .map(|_| ()),
-            ClaimWrite::ReleaseSession { session_id } => {
-                release_claims_for_session(db.connection(), session_id)
-                    .await
-                    .map(|_| ())
-            }
+            ClaimWrite::ReleaseSession {
+                session_id,
+                released_at,
+            } => release_claims_for_session(db.connection(), session_id, *released_at)
+                .await
+                .map(|_| ()),
             ClaimWrite::ReleaseTarget { target_id } => {
                 release_claims_for_target(db.connection(), target_id)
                     .await
                     .map(|_| ())
             }
+            ClaimWrite::ClaimTab {
+                tab_id,
+                opened_target_id,
+                session_id,
+                agent_id,
+                claimed_at,
+            } => claim_tab_for_session(
+                db.connection(),
+                *tab_id,
+                opened_target_id.as_deref(),
+                session_id,
+                agent_id,
+                *claimed_at,
+            )
+            .await
+            .map(|_| ()),
+            ClaimWrite::InheritTab {
+                opener_tab_id,
+                tab_id,
+                opened_target_id,
+                claimed_at,
+            } => inherit_tab_ownership(
+                db.connection(),
+                *opener_tab_id,
+                *tab_id,
+                opened_target_id,
+                *claimed_at,
+            )
+            .await
+            .map(|_| ()),
+            ClaimWrite::ReleaseTabForSession {
+                tab_id,
+                session_id,
+                released_at,
+            } => release_tab_for_session(db.connection(), *tab_id, session_id, *released_at)
+                .await
+                .map(|_| ()),
             ClaimWrite::Flush(_) => unreachable!(),
         };
         if let Err(error) = result {
@@ -632,11 +744,101 @@ async fn release_target_for_session(
 async fn release_claims_for_session(
     db: &sea_orm::DatabaseConnection,
     session_id: &str,
+    released_at: i64,
 ) -> AppResult<u64> {
-    let result = TabClaims::update_many()
-        .col_expr(tab_claims::Column::ReleasedAt, Expr::value(now_epoch_ms()))
+    let target_result = TabClaims::update_many()
+        .col_expr(tab_claims::Column::ReleasedAt, Expr::value(released_at))
         .filter(tab_claims::Column::SessionId.eq(session_id))
         .filter(tab_claims::Column::ReleasedAt.is_null())
+        .exec(db)
+        .await?;
+    let tab_result = SessionTabs::update_many()
+        .col_expr(session_tabs::Column::ReleasedAt, Expr::value(released_at))
+        .filter(session_tabs::Column::SessionId.eq(session_id))
+        .filter(session_tabs::Column::ReleasedAt.is_null())
+        .exec(db)
+        .await?;
+    Ok(target_result.rows_affected + tab_result.rows_affected)
+}
+
+async fn claim_tab_for_session(
+    db: &sea_orm::DatabaseConnection,
+    tab_id: i64,
+    opened_target_id: Option<&str>,
+    session_id: &str,
+    agent_id: &str,
+    claimed_at: i64,
+) -> AppResult<i64> {
+    let txn = db.begin().await?;
+    let existing = SessionTabs::find()
+        .filter(session_tabs::Column::TabId.eq(tab_id))
+        .filter(session_tabs::Column::ReleasedAt.is_null())
+        .one(&txn)
+        .await?;
+    if let Some(existing) = existing {
+        if existing.session_id == session_id && existing.agent_id == agent_id {
+            txn.commit().await?;
+            return Ok(existing.id);
+        }
+        SessionTabs::update_many()
+            .col_expr(session_tabs::Column::ReleasedAt, Expr::value(claimed_at))
+            .filter(session_tabs::Column::Id.eq(existing.id))
+            .exec(&txn)
+            .await?;
+    }
+    let result = SessionTabs::insert(session_tabs::ActiveModel {
+        id: NotSet,
+        session_id: Set(session_id.to_string()),
+        agent_id: Set(agent_id.to_string()),
+        tab_id: Set(tab_id),
+        opened_target_id: Set(opened_target_id.map(str::to_string)),
+        claimed_at: Set(claimed_at),
+        released_at: Set(None),
+    })
+    .exec(&txn)
+    .await?;
+    txn.commit().await?;
+    Ok(result.last_insert_id)
+}
+
+async fn inherit_tab_ownership(
+    db: &sea_orm::DatabaseConnection,
+    opener_tab_id: i64,
+    tab_id: i64,
+    opened_target_id: &str,
+    claimed_at: i64,
+) -> AppResult<Option<i64>> {
+    let Some(owner) = SessionTabs::find()
+        .filter(session_tabs::Column::TabId.eq(opener_tab_id))
+        .filter(session_tabs::Column::ReleasedAt.is_null())
+        .one(db)
+        .await?
+    else {
+        return Ok(None);
+    };
+    claim_tab_for_session(
+        db,
+        tab_id,
+        Some(opened_target_id),
+        &owner.session_id,
+        &owner.agent_id,
+        claimed_at,
+    )
+    .await
+    .map(Some)
+}
+
+async fn release_tab_for_session(
+    db: &sea_orm::DatabaseConnection,
+    tab_id: i64,
+    session_id: &str,
+    released_at: i64,
+) -> AppResult<u64> {
+    let result = SessionTabs::update_many()
+        .col_expr(session_tabs::Column::ReleasedAt, Expr::value(released_at))
+        .filter(session_tabs::Column::TabId.eq(tab_id))
+        .filter(session_tabs::Column::SessionId.eq(session_id))
+        .filter(session_tabs::Column::ReleasedAt.is_null())
         .exec(db)
         .await?;
     Ok(result.rows_affected)
@@ -871,9 +1073,10 @@ fn summarize_result(result: &DispatchResultSummary) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        AuditService, DispatchResultSummary, ListTasksQuery, RecordToolDispatchInput, TaskStatus,
+        AuditService, ClaimWrite, DispatchResultSummary, ListTasksQuery, RecordToolDispatchInput,
+        TaskStatus,
     };
-    use crate::db::audit::entities::prelude::TabClaims;
+    use crate::db::audit::entities::prelude::{SessionTabs, TabClaims};
     use sea_orm::EntityTrait;
     use serde_json::json;
     use tempfile::tempdir;
@@ -891,6 +1094,7 @@ mod tests {
             session_id: session_id.to_string(),
             tool_name: "navigate".to_string(),
             page_id: Some(1),
+            tab_id: Some(11),
             target_id: Some("target".to_string()),
             url: Some(url.to_string()),
             title: None,
@@ -985,6 +1189,61 @@ mod tests {
             .await?
             .unwrap_or_else(|| panic!("queued claim missing"));
         assert!(claim.released_at.is_some());
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn tab_claim_transfer_closes_the_prior_owner_at_the_boundary() -> anyhow::Result<()> {
+        let dir = tempdir()?;
+        let audit = AuditService::open(dir.path().join("audit.sqlite")).await?;
+        audit.enqueue_claim_tab_for_session(
+            11,
+            Some("target-a".to_string()),
+            "session-a".to_string(),
+            "agent-a".to_string(),
+            100,
+        );
+        audit.enqueue_claim_tab_for_session(
+            11,
+            Some("target-b".to_string()),
+            "session-b".to_string(),
+            "agent-b".to_string(),
+            200,
+        );
+        audit.drain_claim_writes().await;
+
+        let claims = SessionTabs::find().all(audit.connection()).await?;
+        assert_eq!(claims.len(), 2);
+        assert_eq!(claims[0].session_id, "session-a");
+        assert_eq!(claims[0].released_at, Some(200));
+        assert_eq!(claims[1].session_id, "session-b");
+        assert_eq!(claims[1].released_at, None);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn queued_tab_release_preserves_the_observed_boundary() -> anyhow::Result<()> {
+        let dir = tempdir()?;
+        let audit = AuditService::open(dir.path().join("audit.sqlite")).await?;
+        audit.enqueue_claim_tab_for_session(
+            11,
+            Some("target-a".to_string()),
+            "session-a".to_string(),
+            "agent-a".to_string(),
+            100,
+        );
+        audit.enqueue_claim_write(ClaimWrite::ReleaseTabForSession {
+            tab_id: 11,
+            session_id: "session-a".to_string(),
+            released_at: 150,
+        });
+        audit.drain_claim_writes().await;
+
+        let claim = SessionTabs::find()
+            .one(audit.connection())
+            .await?
+            .unwrap_or_else(|| panic!("queued tab claim missing"));
+        assert_eq!(claim.released_at, Some(150));
         Ok(())
     }
 }

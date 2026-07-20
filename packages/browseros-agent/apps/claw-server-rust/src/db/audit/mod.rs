@@ -66,6 +66,10 @@ mod tests {
             "tasks",
             "tab_recordings",
             "tab_claims",
+            "session_tabs",
+            "recording_streams",
+            "recording_payloads",
+            "recording_batches",
             "seaql_migrations",
         ] {
             assert!(names.contains(table), "missing table {table}");
@@ -86,6 +90,11 @@ mod tests {
             "tab_recordings_last_event_idx",
             "tab_claims_target_idx",
             "tab_claims_session_idx",
+            "session_tabs_session_idx",
+            "session_tabs_tab_window_idx",
+            "session_tabs_one_live_owner_idx",
+            "recording_streams_tab_time_idx",
+            "recording_streams_retention_idx",
         ] {
             assert!(names.contains(index), "missing index {index}");
         }
@@ -97,7 +106,7 @@ mod tests {
                 "SELECT version FROM seaql_migrations".to_string(),
             ))
             .await?;
-        assert_eq!(migrations.len(), 2);
+        assert_eq!(migrations.len(), 4);
         assert_eq!(
             migrations[0].try_get::<String>("", "version")?,
             "m0001_baseline"
@@ -105,6 +114,14 @@ mod tests {
         assert_eq!(
             migrations[1].try_get::<String>("", "version")?,
             "m0002_add_recordings_and_claims"
+        );
+        assert_eq!(
+            migrations[2].try_get::<String>("", "version")?,
+            "m0003_document_recordings_and_tab_ownership"
+        );
+        assert_eq!(
+            migrations[3].try_get::<String>("", "version")?,
+            "m0004_atomic_recording_payloads"
         );
         Ok(())
     }
@@ -165,6 +182,7 @@ mod tests {
             .collect::<Result<HashSet<_>, _>>()?;
         assert!(columns.contains("dispatch_id"));
         assert!(columns.contains("has_screenshot"));
+        assert!(columns.contains("tab_id"));
         let drizzle_ledger: Option<i64> = sqlx::query_scalar(
             "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = '__drizzle_migrations'",
         )
@@ -206,7 +224,7 @@ mod tests {
                 "SELECT version FROM seaql_migrations".to_string(),
             ))
             .await?;
-        assert_eq!(migrations.len(), 2);
+        assert_eq!(migrations.len(), 4);
         Ok(())
     }
 

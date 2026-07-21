@@ -22,9 +22,9 @@ import {
   type Harness,
   RECORDING_INGEST_MAX_BYTES,
   type SessionDetail,
-  type SessionSummary,
-  type Tab,
 } from '@browseros/claw-api'
+import { getBrowserSession } from '../../lib/browser-session'
+import { logger } from '../../lib/logger'
 import { identityService } from '../../lib/mcp-session'
 import {
   type TabActivityRecord,
@@ -51,14 +51,46 @@ import { replayService } from '../../services/replays'
 import { screencastCache } from '../../services/screencast-cache'
 import { screenshotPath } from '../../services/screenshots'
 import {
+  createSessionQueryService,
+  sessionSummaryForTask,
+} from '../../services/session-query'
+import {
+  getOpenSessionTab,
+  listOpenSessionTabs,
+} from '../../services/session-tabs'
+import {
   getTask,
+  getTaskSummaries,
   listTasks,
   type TaskDetail,
-  type TaskSummary,
 } from '../../services/tasks'
 import { VERSION } from '../../version'
-import { resolveAgentDisplay } from '../tabs/agent-display'
 import type { CanonicalApiDependencies, RecordingAssociation } from '.'
+
+const sessionQueryService = createSessionQueryService({
+  listConnectedIdentities: () => identityService.list(),
+  getConnectedIdentity: (sessionId) => identityService.getIdentity(sessionId),
+  listTasks,
+  getTaskSummaries,
+  listOpenSessionTabs,
+  getOpenSessionTab,
+  async listBrowserPages() {
+    const session = getBrowserSession()
+    if (!session) return null
+    try {
+      return await session.pages.list()
+    } catch (error) {
+      logger.warn('live session browser reconciliation unavailable', {
+        error: error instanceof Error ? error.message : String(error),
+      })
+      return null
+    }
+  },
+  snapshotTabActivity: () => tabActivityRegistry.snapshot(),
+  getScreencastFrame: (sessionId, pageId, targetId) =>
+    screencastCache.getForSessionTarget(sessionId, pageId, targetId),
+  now: () => Date.now(),
+})
 
 export const canonicalApiDependencies: CanonicalApiDependencies = {
   getSystemInfo: () => ({
@@ -74,29 +106,7 @@ export const canonicalApiDependencies: CanonicalApiDependencies = {
   }),
   getTelemetry: getTelemetryState,
   updateTelemetry: setTelemetryConsent,
-  listSessions(query) {
-    const result = listTasks({
-      ...(query.slug ? { slug: query.slug } : {}),
-      ...(query.status ? { status: query.status } : {}),
-      ...(query.site ? { site: query.site } : {}),
-      ...(query.search ? { search: query.search } : {}),
-      ...(query.since !== undefined ? { since: query.since } : {}),
-      ...(query.cursor !== undefined ? { cursor: query.cursor } : {}),
-      ...(query.limit !== undefined ? { limit: query.limit } : {}),
-    })
-    // Browser profiles are a BrowserOS-native concept: only the Rust
-    // server mints `profileId`, this server never does, so a profileId
-    // filter here matches nothing. The filter exists for parity with
-    // the contract's query surface.
-    const items = result.tasks.map(sessionSummary)
-    const filtered = query.profileId
-      ? items.filter((item) => item.profileId === query.profileId)
-      : items
-    return {
-      items: filtered,
-      ...(result.nextCursor === null ? {} : { nextCursor: result.nextCursor }),
-    }
-  },
+  listSessions: (query) => sessionQueryService.listSessions(query),
   getSession(sessionId) {
     const task = getTask(sessionId)
     return task ? sessionDetail(task) : null
@@ -183,45 +193,11 @@ export const canonicalApiDependencies: CanonicalApiDependencies = {
     )
     return { accepted: appended ? parsed.events.length : 0 }
   },
-  listTabs() {
-    const identities = identityService.list()
-    const identitiesByAgentId = new Map(
-      identities.map((identity) => [identity.key, identity]),
+  async getSessionBrowserTabPreview(sessionId, browserTabId) {
+    const frame = await sessionQueryService.getSessionBrowserTabPreview(
+      sessionId,
+      browserTabId,
     )
-    return {
-      items: tabActivityRegistry.snapshot().map((activity): Tab => {
-        const display = resolveAgentDisplay(
-          activity.agentId,
-          activity.slug,
-          identitiesByAgentId,
-        )
-        const preview = screencastCache.get(activity.pageId)
-        return {
-          tabId: activity.tabId,
-          pageId: activity.pageId,
-          targetId: activity.targetId,
-          ...(identityService.getIdentity(activity.sessionId)
-            ? { sessionId: activity.sessionId }
-            : {}),
-          slug: activity.slug,
-          label: display.agentLabel,
-          ...(display.harness === null ? {} : { harness: display.harness }),
-          ...(display.color === null ? {} : { color: display.color }),
-          url: activity.url,
-          title: activity.title,
-          status: activity.status,
-          firstActivityAt: activity.firstToolAt,
-          lastActivityAt: activity.lastToolAt,
-          lastToolName: activity.lastToolName,
-          toolCount: activity.toolCount,
-          recentTools: activity.recentTools,
-          ...(preview ? { previewCapturedAt: preview.capturedAt } : {}),
-        }
-      }),
-    }
-  },
-  getTabPreview(pageId) {
-    const frame = screencastCache.get(pageId)
     if (!frame) return null
     const bytes = Buffer.from(frame.jpegBase64, 'base64')
     return bytes.length === 0
@@ -270,30 +246,13 @@ function knownSession(sessionId: string): boolean {
   return Boolean(identityService.getIdentity(sessionId) ?? getTask(sessionId))
 }
 
-function sessionSummary(task: TaskSummary): SessionSummary {
-  return {
-    sessionId: task.sessionId,
-    slug: task.slug,
-    label: task.agentLabel,
-    name: identityService.getIdentity(task.sessionId)?.label ?? task.title,
-    ...(task.site === null ? {} : { site: task.site }),
-    startedAt: task.startedAt,
-    ...(task.endedAt === null ? {} : { endedAt: task.endedAt }),
-    durationMs: Math.max(0, task.durationMs),
-    dispatchCount: task.dispatchCount,
-    toolSequence: task.toolSequence,
-    status: task.status,
-    errorCount: task.errorCount,
-    ...(task.lastScreenshotDispatchId === null
-      ? {}
-      : { lastScreenshotDispatchId: task.lastScreenshotDispatchId }),
-  }
-}
-
 function sessionDetail(task: TaskDetail): SessionDetail {
   const screenshotIds = new Set(task.screenshotDispatchIds)
   return {
-    session: sessionSummary(task),
+    session: sessionSummaryForTask(
+      task,
+      identityService.getIdentity(task.sessionId),
+    ),
     dispatches: task.dispatches.map((row): Dispatch => {
       return {
         dispatchId: row.id,

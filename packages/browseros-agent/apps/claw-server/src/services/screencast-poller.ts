@@ -117,12 +117,20 @@ async function runTick(
   const livePageIds = new Set<number>()
 
   // 1. Build the work list: active tabs not in failure backoff.
-  const work: number[] = []
+  const work: Array<{
+    sessionId: string
+    pageId: number
+    targetId: string
+  }> = []
   for (const tab of tabs) {
     livePageIds.add(tab.pageId)
     if (tab.status !== 'active') continue
     if (screencastCache.isInBackoff(tab.pageId, tab.lastToolAt)) continue
-    work.push(tab.pageId)
+    work.push({
+      sessionId: tab.sessionId,
+      pageId: tab.pageId,
+      targetId: tab.targetId,
+    })
   }
 
   // 2. GC frames for tabs that closed since the last tick.
@@ -139,13 +147,17 @@ async function runTick(
   for (let i = 0; i < work.length; i += MAX_PARALLEL_SHOTS) {
     const batch = work.slice(i, i + MAX_PARALLEL_SHOTS)
     await Promise.allSettled(
-      batch.map((pageId) => snapOne(pageId, session, inFlight)),
+      batch.map(({ sessionId, pageId, targetId }) =>
+        snapOne(sessionId, pageId, targetId, session, inFlight),
+      ),
     )
   }
 }
 
 async function snapOne(
+  sessionId: string,
   pageId: number,
+  targetId: string,
   session: BrowserSession,
   inFlight: Set<number>,
 ): Promise<void> {
@@ -200,9 +212,9 @@ async function snapOne(
       // Drop the cached frame once we cross the backoff threshold.
       // Holding on to the previous JPEG after the agent has navigated
       // away (e.g. into a cross-origin iframe that the screenshot
-      // path cannot capture) means /api/v1/tabs returns the OLD
-      // page's image with the NEW page's URL + title until backoff
-      // lifts. One transient failure still keeps the frame (cheap
+      // path cannot capture) could pair the OLD page's image with the
+      // NEW page's URL + title until backoff lifts. One transient
+      // failure still keeps the frame (cheap
       // recovery for one-off CDP hiccups); sustained failures drop
       // it so the UI falls back to the placeholder honestly.
       if (screencastCache.markFailure(pageId)) {
@@ -211,6 +223,8 @@ async function snapOne(
       return
     }
     screencastCache.set(pageId, {
+      sessionId,
+      targetId,
       jpegBase64: result.data,
       capturedAt: Date.now(),
       byteLength: estimateBase64Bytes(result.data),

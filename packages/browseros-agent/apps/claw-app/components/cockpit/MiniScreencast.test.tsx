@@ -4,45 +4,222 @@
  * SPDX-License-Identifier: AGPL-3.0-or-later
  */
 
-import { describe, expect, it } from 'bun:test'
+import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test'
+import { parseHTML } from 'linkedom'
+import { act } from 'react'
+import type { Root } from 'react-dom/client'
 import { renderToStaticMarkup } from 'react-dom/server'
-import { tabPreviewUrl } from '@/modules/api/tabs.hooks'
-import { MiniScreencast } from './MiniScreencast'
+import * as _auditHooks from '@/modules/api/audit.hooks'
+
+mock.module('@/modules/api/audit.hooks', () => ({
+  ..._auditHooks,
+  useSessionBrowserTabPreviewUrl: (
+    sessionId: string,
+    browserTabId?: number,
+    previewCapturedAt?: number,
+  ) =>
+    browserTabId === undefined || previewCapturedAt === undefined
+      ? null
+      : `/sessions/${sessionId}/browser-tabs/${browserTabId}/preview?capturedAt=${previewCapturedAt}`,
+}))
+
+const { MiniScreencast } = await import('./MiniScreencast')
+
+class FakeImage {
+  static instances: FakeImage[] = []
+
+  onload: (() => void) | null = null
+  onerror: (() => void) | null = null
+  src = ''
+
+  constructor() {
+    FakeImage.instances.push(this)
+  }
+}
+
+const globalDescriptors = new Map(
+  [
+    'window',
+    'document',
+    'navigator',
+    'HTMLElement',
+    'Node',
+    'Event',
+    'Image',
+  ].map((name) => [name, Object.getOwnPropertyDescriptor(globalThis, name)]),
+)
+
+let root: Root
+let container: HTMLElement
+
+beforeEach(async () => {
+  FakeImage.instances.length = 0
+  const dom = parseHTML(
+    '<!doctype html><html><body><div id="root"></div></body></html>',
+  )
+  const globals = {
+    window: dom.window,
+    document: dom.document,
+    navigator: dom.window.navigator,
+    HTMLElement: dom.window.HTMLElement,
+    Node: dom.window.Node,
+    Event: dom.window.Event,
+    Image: FakeImage,
+  }
+  for (const [name, value] of Object.entries(globals)) {
+    Object.defineProperty(globalThis, name, {
+      configurable: true,
+      writable: true,
+      value,
+    })
+  }
+  Object.defineProperty(globalThis, 'IS_REACT_ACT_ENVIRONMENT', {
+    configurable: true,
+    writable: true,
+    value: true,
+  })
+  container = dom.document.getElementById('root') as unknown as HTMLElement
+  const { createRoot } = await import('react-dom/client')
+  root = createRoot(container)
+})
+
+afterEach(async () => {
+  await act(async () => root.unmount())
+  for (const [name, descriptor] of globalDescriptors) {
+    if (descriptor) Object.defineProperty(globalThis, name, descriptor)
+    else Reflect.deleteProperty(globalThis, name)
+  }
+  Reflect.deleteProperty(globalThis, 'IS_REACT_ACT_ENVIRONMENT')
+})
 
 describe('MiniScreencast', () => {
-  it('renders the placeholder globe + host when no screencast is supplied', () => {
+  it('renders the placeholder globe and host without a browser tab', () => {
     const html = renderToStaticMarkup(
-      <MiniScreencast site="example.com" pageId={7} />,
+      <MiniScreencast site="No browser activity" sessionId="session-empty" />,
     )
-    expect(html).toContain('example.com')
+    expect(html).toContain('No browser activity')
     expect(html).not.toContain('data:image/jpeg;base64,')
+    expect(html).not.toContain('data-preview-url')
   })
 
-  it('keys the canonical JPEG URL by page and capture time', () => {
-    expect(tabPreviewUrl(7, 123, 'http://127.0.0.1:9200')).toBe(
-      'http://127.0.0.1:9200/api/v1/tabs/7/preview?capturedAt=123',
+  it('keys the canonical JPEG URL by session, browser tab, and capture time', () => {
+    expect(
+      _auditHooks.sessionBrowserTabPreviewUrl(
+        'session / one',
+        7,
+        123,
+        'http://127.0.0.1:9200',
+      ),
+    ).toBe(
+      'http://127.0.0.1:9200/api/v1/sessions/session%20%2F%20one/browser-tabs/7/preview?capturedAt=123',
     )
   })
 
   it('falls back to placeholder before a preview has been captured', () => {
     const html = renderToStaticMarkup(
-      <MiniScreencast site="example.com" pageId={7} />,
+      <MiniScreencast
+        site="example.com"
+        sessionId="session-1"
+        browserTabId={7}
+      />,
     )
     expect(html).not.toContain('data:image/jpeg;base64,')
+    expect(html).not.toContain('data-preview-url')
     expect(html).toContain('example.com')
   })
 
-  it('shows the live dot when live=true', () => {
-    const html = renderToStaticMarkup(
-      <MiniScreencast site="example.com" pageId={7} live />,
+  it('shows the live dot only when live=true', () => {
+    const liveHtml = renderToStaticMarkup(
+      <MiniScreencast
+        site="example.com"
+        sessionId="session-1"
+        browserTabId={7}
+        live
+      />,
     )
-    expect(html).toMatch(/animate-pulse-dot/)
+    const idleHtml = renderToStaticMarkup(
+      <MiniScreencast
+        site="example.com"
+        sessionId="session-1"
+        browserTabId={7}
+      />,
+    )
+    expect(liveHtml).toMatch(/animate-pulse-dot/)
+    expect(idleHtml).not.toMatch(/animate-pulse-dot/)
   })
 
-  it('does not show the live dot when live is false', () => {
-    const html = renderToStaticMarkup(
-      <MiniScreencast site="example.com" pageId={7} />,
-    )
-    expect(html).not.toMatch(/animate-pulse-dot/)
+  it('retains the current frame only for a newer same-tab capture and clears a failed replacement', async () => {
+    await act(async () => {
+      root.render(
+        <MiniScreencast
+          site="first.example"
+          sessionId="session-1"
+          browserTabId={7}
+          previewCapturedAt={100}
+        />,
+      )
+    })
+    expect(
+      container.querySelector('[data-preview-url]')?.getAttribute('src'),
+    ).toContain('/browser-tabs/7/preview?capturedAt=100')
+
+    await act(async () => {
+      root.render(
+        <MiniScreencast
+          site="first.example"
+          sessionId="session-1"
+          browserTabId={7}
+          previewCapturedAt={101}
+        />,
+      )
+    })
+    expect(
+      container.querySelector('[data-preview-url]')?.getAttribute('src'),
+    ).toContain('/browser-tabs/7/preview?capturedAt=100')
+
+    const sameTabReplacement = FakeImage.instances.at(-1)
+    if (!sameTabReplacement) {
+      throw new Error('same-tab replacement image was not created')
+    }
+    await act(async () => sameTabReplacement.onerror?.())
+    expect(container.querySelector('[data-preview-url]')).toBeNull()
+
+    await act(async () => {
+      root.render(
+        <MiniScreencast
+          site="first.example"
+          sessionId="session-1"
+          browserTabId={7}
+          previewCapturedAt={102}
+        />,
+      )
+    })
+    const recoveredSameTab = FakeImage.instances.at(-1)
+    if (!recoveredSameTab) {
+      throw new Error('recovery image was not created')
+    }
+    await act(async () => recoveredSameTab.onload?.())
+    expect(
+      container.querySelector('[data-preview-url]')?.getAttribute('src'),
+    ).toContain('/browser-tabs/7/preview?capturedAt=102')
+
+    await act(async () => {
+      root.render(
+        <MiniScreencast
+          site="second.example"
+          sessionId="session-1"
+          browserTabId={8}
+          previewCapturedAt={200}
+        />,
+      )
+    })
+    expect(container.querySelector('[data-preview-url]')).toBeNull()
+
+    const replacement = FakeImage.instances.at(-1)
+    if (!replacement) throw new Error('replacement image was not created')
+    await act(async () => replacement.onerror?.())
+
+    expect(container.querySelector('[data-preview-url]')).toBeNull()
+    expect(container.textContent).toContain('second.example')
   })
 })

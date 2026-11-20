@@ -20,9 +20,13 @@ type ArgsConfig struct {
 const (
 	ProductBrowserOS   = "browseros"
 	ProductBrowserClaw = "browserclaw"
+)
 
-	BrowserOSBinaryPath   = "/Applications/BrowserOS.app/Contents/MacOS/BrowserOS"
-	BrowserClawBinaryPath = "/Applications/BrowserOS neo.app/Contents/MacOS/BrowserOS neo"
+// BrowserOSBinaryPath and BrowserClawBinaryPath are the installed app binaries
+// for this OS, defined in binary_paths_*.go.
+var (
+	BrowserOSBinaryPath   = defaultBrowserOSBinaryPath()
+	BrowserClawBinaryPath = defaultBrowserClawBinaryPath()
 )
 
 type BinaryResolution struct {
@@ -53,8 +57,14 @@ func ResolveBinary(product string, exists func(string) bool) BinaryResolution {
 	return resolution
 }
 
-// ResolveInstalledBinary resolves the product binary against the local macOS app bundle paths.
+// ResolveInstalledBinary resolves the product binary against the installed app paths.
+// BROWSEROS_BINARY, when it names an existing file, overrides the lookup for any
+// product, which is how a custom or non-default install location is used.
 func ResolveInstalledBinary(product string) BinaryResolution {
+	if override := os.Getenv("BROWSEROS_BINARY"); override != "" && binaryExists(override) {
+		product = normalizeProduct(product)
+		return BinaryResolution{Product: product, Path: override, PreferredPath: override}
+	}
 	return ResolveBinary(product, binaryExists)
 }
 

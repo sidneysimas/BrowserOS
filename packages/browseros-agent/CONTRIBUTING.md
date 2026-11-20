@@ -21,12 +21,12 @@ The wire types are generated on both sides. [`packages/claw-api`](packages/claw-
 |---|---|---|
 | **Bun** | The package manager and runtime. Version pinned in `package.json` | `curl -fsSL https://bun.sh/install \| bash` |
 | **Node 22+** | Live browser tests and the Playwright corpus | [Node.js](https://nodejs.org/) |
-| **Go** | The dev supervisor is a Go program compiled on every run | `brew install go` |
+| **Go** | The dev supervisor is a Go program compiled on every run | `brew install go` (Windows: `winget install GoLang.Go`) |
 | **Rust** | `claw-server` is built and run with cargo | `brew install rustup && rustup-init` |
 | **BrowserOS neo** | The supervisor launches the installed app | [Download](https://cdn.browseros.com/download/BrowserOS_neo.dmg) |
 | **Docker** | Only if you change the API contract. `codegen:claw-api` runs the generator in a pinned container | [Docker Desktop](https://www.docker.com/products/docker-desktop/) |
 
-The interactive dev supervisor is macOS only today. The live-test launcher below supports macOS and Linux; Windows contributors can install dependencies and run checks without launching it.
+The interactive dev supervisor runs on macOS and Windows. On Windows it looks for BrowserOS neo under `%LOCALAPPDATA%\BrowserOS neo\Application` (then `%ProgramFiles%`); set `BROWSEROS_BINARY` to the browser executable for any other location. Windows has no process groups, so stopping is always a forced `taskkill /T` of each process tree. The live-test launcher below supports macOS and Linux only.
 
 ## Setup
 

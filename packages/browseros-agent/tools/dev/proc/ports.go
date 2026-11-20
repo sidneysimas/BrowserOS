@@ -5,7 +5,6 @@ import (
 	"math/rand"
 	"net"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"time"
 )
@@ -131,10 +130,6 @@ func (r *PortReservations) ReleaseAll() {
 	r.ReleaseCDP()
 	r.ReleaseServer()
 	r.ReleaseExtension()
-}
-
-func KillPort(port int) {
-	exec.Command("sh", "-c", fmt.Sprintf("lsof -ti:%d | xargs kill -9 2>/dev/null || true", port)).Run()
 }
 
 func KillPortAndWait(port int, timeout time.Duration) error {

@@ -10,6 +10,8 @@ import (
 	"os"
 	"syscall"
 	"time"
+
+	"browseros-dev/proc"
 )
 
 const dogfoodStopTimeout = 10 * time.Second
@@ -144,18 +146,7 @@ func waitForDogfoodStopped(out io.Writer, target dogfoodRuntimeTarget, timeout t
 }
 
 func dogfoodRunActive(lockPath string) (bool, error) {
-	file, err := os.OpenFile(lockPath, os.O_CREATE|os.O_RDWR, 0o644)
-	if err != nil {
-		return false, err
-	}
-	defer file.Close()
-	if err := syscall.Flock(int(file.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
-		if errors.Is(err, syscall.EWOULDBLOCK) || errors.Is(err, syscall.EAGAIN) {
-			return true, nil
-		}
-		return false, err
-	}
-	return false, syscall.Flock(int(file.Fd()), syscall.LOCK_UN)
+	return proc.LockHeld(lockPath)
 }
 
 func readDogfoodRunState(path string) (dogfoodRunState, error) {
@@ -174,10 +165,7 @@ func signalDogfoodPID(pid int, sig syscall.Signal) error {
 	if pid <= 0 {
 		return fmt.Errorf("invalid dogfood pid %d", pid)
 	}
-	if err := syscall.Kill(pid, sig); err != nil && err != syscall.ESRCH {
-		return err
-	}
-	return nil
+	return proc.SignalProcess(pid, sig)
 }
 
 func cleanupDogfoodRunFilesWithWarning(out io.Writer, target dogfoodRuntimeTarget) {

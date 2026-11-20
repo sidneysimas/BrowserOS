@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -261,7 +260,7 @@ func (l *WatchRunLock) Close() error {
 	// Keep the lock file path stable. Unlinking it during handoff can let
 	// another opener lock a different inode while an owner still holds this one.
 	removeErr := os.Remove(l.statePath)
-	unlockErr := syscall.Flock(int(l.file.Fd()), syscall.LOCK_UN)
+	unlockErr := unlockFile(l.file)
 	closeErr := l.file.Close()
 	l.file = nil
 	if removeErr != nil && !os.IsNotExist(removeErr) {
@@ -348,24 +347,22 @@ func processGroupLive(pgid int) bool {
 	if pgid <= 0 {
 		return false
 	}
-	err := syscall.Kill(-pgid, 0)
-	return err == nil || err == syscall.EPERM
+	return groupAlive(pgid)
 }
 
 func processLive(pid int) bool {
 	if pid <= 0 {
 		return false
 	}
-	err := syscall.Kill(pid, 0)
-	return err == nil || err == syscall.EPERM
+	return pidAlive(pid)
 }
 
 func currentBrowserProfilePIDs(userDataDirs []string, includeDevTempProfiles bool) ([]int, error) {
-	output, err := exec.Command("ps", "-axo", "pid=,pgid=,command=").Output()
+	output, err := listProcesses()
 	if err != nil {
-		return nil, fmt.Errorf("listing processes: %w", err)
+		return nil, err
 	}
-	return browserProfilePIDsFromPSForUserDataDirs(string(output), userDataDirs, includeDevTempProfiles), nil
+	return browserProfilePIDsFromPSForUserDataDirs(output, userDataDirs, includeDevTempProfiles), nil
 }
 
 func browserProfilePIDsFromPS(output string) []int {
@@ -413,9 +410,15 @@ func isBrowserProcessForUserDataDir(command string, userDataDirs []string, inclu
 			strings.Contains(command, "browseros-test-"))
 }
 
+// isBrowserAppCommand recognizes BrowserOS and BrowserOS neo binaries: macOS app
+// bundles, and Windows installs under a `BrowserOS*\Application\` directory.
 func isBrowserAppCommand(command string) bool {
-	return strings.Contains(command, "BrowserOS.app/Contents/MacOS/BrowserOS") ||
-		strings.Contains(command, "BrowserOS neo.app/Contents/MacOS/BrowserOS neo")
+	if strings.Contains(command, "BrowserOS.app/Contents/MacOS/BrowserOS") ||
+		strings.Contains(command, "BrowserOS neo.app/Contents/MacOS/BrowserOS neo") {
+		return true
+	}
+	lower := strings.ToLower(command)
+	return strings.Contains(lower, `\browseros`) && strings.Contains(lower, `\application\`) && strings.Contains(lower, ".exe")
 }
 
 func watchRunPaths(baseDir string, identity WatchRunIdentity) watchRunPathsResult {
@@ -450,18 +453,15 @@ func tryAcquireWatchRunLock(lockPath string, statePath string) (*WatchRunLock, e
 	if err != nil {
 		return nil, err
 	}
-	if err := syscall.Flock(int(file.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+	if err := lockFileExclusive(file); err != nil {
 		file.Close()
-		if errors.Is(err, syscall.EWOULDBLOCK) || errors.Is(err, syscall.EAGAIN) {
-			return nil, errWatchRunLocked
-		}
 		return nil, err
 	}
 	return &WatchRunLock{file: file, statePath: statePath}, nil
 }
 
 func (l *WatchRunLock) writeState(identity WatchRunIdentity) error {
-	pgid, err := syscall.Getpgid(0)
+	pgid, err := currentPGID()
 	if err != nil {
 		return fmt.Errorf("reading current process group: %w", err)
 	}
@@ -525,7 +525,7 @@ func signalProcessGroup(pgid int, signal syscall.Signal) error {
 	if pgid <= 0 {
 		return fmt.Errorf("invalid process group %d", pgid)
 	}
-	if err := syscall.Kill(-pgid, signal); err != nil && err != syscall.ESRCH {
+	if err := killGroup(pgid, signal); err != nil {
 		return fmt.Errorf("signaling process group %d: %w", pgid, err)
 	}
 	return nil
@@ -535,8 +535,31 @@ func signalProcess(pid int, signal syscall.Signal) error {
 	if pid <= 0 {
 		return fmt.Errorf("invalid process %d", pid)
 	}
-	if err := syscall.Kill(pid, signal); err != nil && err != syscall.ESRCH {
+	if err := killPID(pid, signal); err != nil {
 		return fmt.Errorf("signaling process %d: %w", pid, err)
 	}
 	return nil
+}
+
+// LockHeld reports whether another process holds the exclusive lock on path,
+// probing with a non-blocking lock that it releases immediately.
+func LockHeld(path string) (bool, error) {
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o644)
+	if err != nil {
+		return false, err
+	}
+	defer file.Close()
+	if err := lockFileExclusive(file); err != nil {
+		if errors.Is(err, errWatchRunLocked) {
+			return true, nil
+		}
+		return false, err
+	}
+	return false, unlockFile(file)
+}
+
+// SignalProcess delivers signal to pid, treating an already-exited process as success.
+// On Windows every signal is a forced tree kill.
+func SignalProcess(pid int, signal syscall.Signal) error {
+	return signalProcess(pid, signal)
 }

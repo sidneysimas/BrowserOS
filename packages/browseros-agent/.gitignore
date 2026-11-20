@@ -189,6 +189,7 @@ browseros-server.exe
 browseros-server-*
 tools/dogfood/browseros-dogfood
 tools/dev/browseros-dev
+tools/dev/browseros-dev.exe
 
 log.txt
 

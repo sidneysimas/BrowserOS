@@ -10,7 +10,7 @@ import { PRODUCT_WEB_HOST } from './lib/constants/productWebHost'
 const env = process.env
 
 // See https://wxt.dev/api/config.html
-// Extension ID will be bflpfmnmnokmjhmgnolecpppdbdophmk
+// Extension ID will be fnjlkojakafednoamkkhgbibdgpckjmc
 export default defineConfig({
   outDir: 'dist',
   modules: ['@wxt-dev/module-react'],
@@ -21,8 +21,9 @@ export default defineConfig({
   },
   manifest: {
     name: 'Assistant',
-    key: 'MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAvBDAaDRvv61NpBeLR8etBRw82lv9VJO3sz/mA26gDzWKtVuzW4DXCl8Zfj5oWmoXLTfv3aiTigUXo/LHOoGpSucEVroMmAc7cgu2KuQ1fZPpMvYa0npD/m4h89360q8Oz0oKKaZGS905IJ04M2IkF4CuU3YEHFJBWb+cUyK9H8YVugelYbPD0IVs63T1SkGbh/t/Tfb2DpkinduSO8+x26sKydm30SRt+iZ2+7Nolcdum3LExInUiX2Pgb65Jb+mVw8NqyTVJyCEp8uq0cSHomWFQirSJ80tsDhISp4btwaRKHrXqovQx9XHQv4hCd+3LuB830eUEVMUNuCO+OyPxQIDAQAB',
-    update_url: 'https://cdn.browseros.com/extensions/update-manifest.xml',
+    key: 'MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAqPjGVa1sl34YhnPHejM0TDmkdG9KY630cjit+N9oF9TE7Cs0RIcRiV2GWCQVIJIWZR2hgZ2uc4S+xNG5fDKOBvHTysgCfy0abAWkObM5MHPZv97SDQ7CBDoXotFFXVWcooI+ZFodcA90Hq+gh2cp+ki8B6tG0J+BkcurAOTdZT2225fpQITiCw0kjuRVkngrd/OagCry9oJpr0g3ShfCREWDKy4svwkPoaS8rh3xlvC0ObOFAuhfIhDRs5BXw39t5dc+gbRo78q9z+zrrAf9JVitf5C7exQyvVC0yowrRG5grbRw+hqgwJW9Qkj4gfge5LO1OjlW5Wj3PFmmjzy61QIDAQAB',
+    // Custom-branded fork: no update_url, so the upstream feed cannot replace
+    // this build (signed with its own key, hence its own ID) with the original UI.
     // update_url: 'https://cdn.browseros.com/extensions/update-manifest.alpha.xml',
     // The bug reporter is the only thing that connects in. The account site
     // used to as well, to hand its sign-in result back to the extension.
@@ -53,7 +54,7 @@ export default defineConfig({
         48: 'icon/48.png',
         128: 'icon/128.png',
       },
-      default_title: 'Ask BrowserOS',
+      default_title: 'Ask MaestroOS',
     },
     permissions: [
       'system.cpu',

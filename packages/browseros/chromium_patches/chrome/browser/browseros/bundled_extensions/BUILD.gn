@@ -26,7 +26,7 @@ index 0000000000000000000000000000000000000000..dcc0720c667865f28b40801cd250c5aa
 +
 +if (browseros_allow_runtime_product_override || browseros_product_browseros) {
 +  _bundled_extensions_sources +=
-+      [ "bflpfmnmnokmjhmgnolecpppdbdophmk.crx" ]  # Agent
++      [ "fnjlkojakafednoamkkhgbibdgpckjmc.crx" ]  # Agent
 +}
 +
 +if (browseros_allow_runtime_product_override || browseros_product_browserclaw) {

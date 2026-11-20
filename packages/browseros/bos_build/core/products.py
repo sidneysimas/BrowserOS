@@ -11,7 +11,7 @@ bos_build/products/<id>/product.py — one file answers "what is X".
 from dataclasses import dataclass, fields
 from typing import Any, Dict, Optional, Tuple
 
-BROWSEROS_AGENT_EXTENSION_ID = "bflpfmnmnokmjhmgnolecpppdbdophmk"
+BROWSEROS_AGENT_EXTENSION_ID = "fnjlkojakafednoamkkhgbibdgpckjmc"
 BROWSEROS_BUG_REPORTER_EXTENSION_ID = "adlpneommgkgeanpaekgoaolcpncohkf"
 BROWSERCLAW_EXTENSION_ID = "pjimfkbpehlcllblajnpfamdfjhhlgkc"
 # Packaged to the CDN but neither bundled nor in the update feeds.

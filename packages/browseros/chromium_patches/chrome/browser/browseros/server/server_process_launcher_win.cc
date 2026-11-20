@@ -3,7 +3,7 @@ new file mode 100644
 index 0000000000000000000000000000000000000000..69ccd172300d28bbe36817bf526711bb8c9ddb14
 --- /dev/null
 +++ b/chrome/browser/browseros/server/server_process_launcher_win.cc
-@@ -0,0 +1,39 @@
+@@ -0,0 +1,48 @@
 +// Copyright 2026 The Chromium Authors
 +// Use of this source code is governed by a BSD-style license that can be
 +// found in the LICENSE file.
@@ -23,6 +23,15 @@ index 0000000000000000000000000000000000000000..69ccd172300d28bbe36817bf526711bb
 +namespace browseros {
 +
 +base::Process LaunchServerProcess(const base::CommandLine& command_line) {
++  // Custom-branded fork: the agent extension is signed with its own key, so
++  // its origin is missing from the server's built-in CORS allowlist. The
++  // server reads extra origins from this variable, which it inherits because
++  // CreateProcessW gets no environment block. That also covers a server
++  // binary later replaced by the server updater.
++  ::SetEnvironmentVariableW(
++      L"BROWSEROS_TRUSTED_ORIGINS",
++      L"chrome-extension://fnjlkojakafednoamkkhgbibdgpckjmc");
++
 +  base::win::StartupInformation startup_info;
 +  STARTUPINFO* startup_info_ptr = startup_info.startup_info();
 +  startup_info_ptr->dwFlags |= STARTF_USESHOWWINDOW;

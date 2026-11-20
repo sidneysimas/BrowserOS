@@ -95,7 +95,10 @@ export const scheduledJobRuns = async () => {
     if (updated) await putScheduledJob(updated)
   }
 
-  const executeScheduledJob = async (jobId: string): Promise<void> => {
+  const executeScheduledJob = async (
+    jobId: string,
+    message?: string,
+  ): Promise<void> => {
     const jobs = await listScheduledJobsOrNull()
     if (jobs === null) {
       throw new Error('Cannot reach the MaestroOS server to load the job')
@@ -112,7 +115,7 @@ export const scheduledJobRuns = async () => {
 
     try {
       const response = await getChatServerResponse({
-        message: job.query,
+        message: message ?? job.query,
         signal: abortController.signal,
         providerId: job.providerId,
       })
@@ -205,7 +208,7 @@ export const scheduledJobRuns = async () => {
 
   onScheduleMessage('runScheduledJob', async ({ data }) => {
     try {
-      await executeScheduledJob(data.jobId)
+      await executeScheduledJob(data.jobId, data.message)
       return { success: true }
     } catch (e) {
       return {

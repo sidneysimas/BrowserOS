@@ -12,6 +12,7 @@
     "apps/app/entrypoints/auth.content/index.ts",
     "apps/app/entrypoints/glow.content/index.ts",
     "apps/app/entrypoints/selection.content.ts",
+    "apps/app/screens/scheduled-tasks/ScheduledTasksPage.tsx",
     "scripts/run-bun-test.ts",
     "scripts/dev/inspect-ui.ts",
     "scripts/patch-windows-exe.ts",

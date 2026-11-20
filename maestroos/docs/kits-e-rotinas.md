@@ -1,6 +1,6 @@
 # Desenho: Kits por setor e Rotinas
 
-Status: aprovado em 2026-11-20. Fases 1 (kits) e 2 (comandos `m` e tela Meu kit) implementadas; nome escolhido: "Rotinas"; telas novas em pt-BR.
+Status: aprovado em 2026-11-20. Fases 1 (kits), 2 (comandos `m` e tela Meu kit) e 3 (Rotinas escritas) implementadas; nome escolhido: "Rotinas"; telas novas em pt-BR.
 
 As duas funções ficam quase inteiras na extensão do agente (`packages/browseros-agent/apps/app`)
 e no servidor local (`apps/server`). Nenhuma delas exige patch no Chromium. Para desenvolver,
@@ -130,8 +130,13 @@ rotina estende esse modelo, em vez de criar outro.
 
 ### Modelo de dados
 
-São colunas novas em `scheduled_jobs`, com migração drizzle. Tarefas antigas continuam
-funcionando como rotinas sem passos.
+> **Implementado de outro jeito:** em vez de colunas novas em `scheduled_jobs`, os campos da
+> rotina ficam na extensão (`local:rotinas`, por id da tarefa). Uma migração própria colidiria
+> com as migrações futuras do upstream, porque o Drizzle aplica por data e pularia migrações
+> mais antigas que a nossa. O `query` da tarefa recebe o prompt já montado, então os alarmes
+> seguem funcionando pelo caminho original. Veja `apps/app/lib/rotinas/rotinas.ts`.
+
+O formato lógico continua o descrito abaixo.
 
 ```ts
 interface Rotina extends ScheduledJob {

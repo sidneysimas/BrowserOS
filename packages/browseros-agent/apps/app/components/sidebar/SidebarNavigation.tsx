@@ -28,7 +28,7 @@ const primaryNavItems: NavItem[] = [
     to: '/connect-apps',
     icon: PlugZap,
   },
-  { name: 'Scheduled Tasks', to: '/scheduled', icon: CalendarClock },
+  { name: 'Rotinas', to: '/rotinas', icon: CalendarClock },
   {
     name: 'Settings',
     to: '/settings/ai',

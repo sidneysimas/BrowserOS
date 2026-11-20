@@ -21,6 +21,8 @@ os créditos ao projeto original.
 | Atualizações | O WinSparkle fica sempre desligado, para o appcast oficial não instalar o BrowserOS por cima | `chromium_patches/chrome/browser/win/winsparkle_glue.cc` |
 | Servidor de IA | Compilado deste repositório sem chaves de telemetria e com o atualizador desligado, para o CDN não trocá-lo pela versão do upstream | `scripts/build/server/descriptor.ts` (`BROWSEROS_SERVER_TELEMETRY_OFF=1`) e `chromium_patches/.../server/browseros_server_config.cc` |
 | Telemetria do navegador | Métricas (PostHog) sem chave, ou seja, desligadas. Relatórios de crash não são enviados, porque a URL é o Sentry do upstream | `chromium_patches/.../metrics/browseros_metrics_service.cc` e `chromium_patches/chrome/app/chrome_crash_reporter_client_win.cc` |
+| Kits por setor | Escolha do kit na primeira execução, "Seus sites" na nova aba, comandos `m <palavra>` na barra de endereço e a tela Meu kit | `apps/app/lib/kits`, `screens/onboarding-kit`, `screens/my-kit`, `entrypoints/background/omniboxCommands.ts` |
+| Rotinas | Substituem a página de tarefas agendadas (`/scheduled` redireciona para `/rotinas`). Passos, entradas e modo ficam na extensão, sem migração no banco do servidor | `apps/app/lib/rotinas`, `screens/rotinas`. A página antiga continua no código e é declarada como entrada no `.fallowrc.json`, para os merges com o upstream não gerarem conflito |
 | Versão mínima do Chromium | `BROWSEROS_RELEASE_MIN_CHROMIUM_VERSION` = 155.0.8059.26 | `bos_build/config/` |
 | Build | A etapa `bundled_extensions` aceita `codebase="file://..."` para usar um CRX local | `bos_build/steps/extensions/bundled_extensions.py` |
 | Ambiente de desenvolvimento | O supervisor `tools/dev` funciona no Windows | `packages/browseros-agent/tools/dev` |

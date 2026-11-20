@@ -2,6 +2,9 @@ import { defineExtensionMessaging } from '@webext-core/messaging'
 
 interface RunScheduledJobData {
   jobId: string
+  /** Prompt for this run only, replacing the job's stored query. MaestroOS
+   * Rotinas use it to run with the input values typed for the run. */
+  message?: string
 }
 
 interface CancelScheduledJobRunData {

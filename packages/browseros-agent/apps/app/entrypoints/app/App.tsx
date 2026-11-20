@@ -1,6 +1,13 @@
 import { DiagnosticsPage } from '@browseros/diagnostics/view'
 import type { FC } from 'react'
-import { HashRouter, Navigate, Route, Routes, useParams } from 'react-router'
+import {
+  HashRouter,
+  Navigate,
+  Route,
+  Routes,
+  useLocation,
+  useParams,
+} from 'react-router'
 import { SettingsSidebarLayout } from '@/components/layout/SettingsSidebarLayout'
 import { SidebarLayout } from '@/components/layout/SidebarLayout'
 import { AgentCommandHome } from '@/screens/agent-command/AgentCommandHome'
@@ -17,7 +24,7 @@ import { NewTabLayout } from '@/screens/newtab/layout/NewTabLayout'
 import { Personalize } from '@/screens/newtab/personalize/Personalize'
 import { OnboardingAiPage } from '@/screens/onboarding-ai/OnboardingAiPage'
 import { OnboardingKitPage } from '@/screens/onboarding-kit/OnboardingKitPage'
-import { ScheduledTasksPage } from '@/screens/scheduled-tasks/ScheduledTasksPage'
+import { RotinasPage } from '@/screens/rotinas/RotinasPage'
 
 function getSurveyParams(): { maxTurns?: number; experimentId?: string } {
   const params = new URLSearchParams(window.location.search)
@@ -46,6 +53,11 @@ const OptionsRedirect: FC = () => {
   return <Navigate to={newPath} replace />
 }
 
+const ToRotinas: FC = () => {
+  const { search } = useLocation()
+  return <Navigate to={`/rotinas${search}`} replace />
+}
+
 export const App: FC = () => {
   const surveyParams = getSurveyParams()
 
@@ -60,7 +72,11 @@ export const App: FC = () => {
           </Route>
 
           <Route path="connect-apps" element={<ConnectMCP />} />
-          <Route path="scheduled" element={<ScheduledTasksPage />} />
+          {/* MaestroOS: Rotinas replace the upstream Scheduled Tasks page.
+              /scheduled keeps its query string, which carries the agent's
+              "schedule this" prefill. */}
+          <Route path="rotinas" element={<RotinasPage />} />
+          <Route path="scheduled" element={<ToRotinas />} />
         </Route>
 
         <Route element={<SettingsSidebarLayout />}>

@@ -55,16 +55,17 @@ export interface UseScheduledJobsReturn {
   jobs: ScheduledJob[]
   /** The server could not be reached, as opposed to reporting no jobs. */
   isUnavailable: boolean
+  /** Resolves with the new job's id. */
   addJob: (
     job: Omit<ScheduledJob, 'id' | 'createdAt' | 'updatedAt'>,
-  ) => Promise<void>
+  ) => Promise<string>
   removeJob: (id: string) => Promise<void>
   editJob: (
     id: string,
     updates: Omit<ScheduledJob, 'id' | 'createdAt' | 'updatedAt'>,
   ) => Promise<void>
   toggleJob: (id: string, enabled: boolean) => Promise<void>
-  runJob: (id: string) => Promise<unknown>
+  runJob: (id: string, message?: string) => Promise<unknown>
 }
 
 export function useScheduledJobs(): UseScheduledJobsReturn {
@@ -110,12 +111,9 @@ export function useScheduledJobs(): UseScheduledJobsReturn {
     isUnavailable: jobsQuery.isError,
     addJob: async (job) => {
       const now = new Date().toISOString()
-      await save({
-        ...job,
-        id: crypto.randomUUID(),
-        createdAt: now,
-        updatedAt: now,
-      })
+      const id = crypto.randomUUID()
+      await save({ ...job, id, createdAt: now, updatedAt: now })
+      return id
     },
     removeJob: async (id) => {
       await removeMutation.mutateAsync(id)
@@ -135,7 +133,8 @@ export function useScheduledJobs(): UseScheduledJobsReturn {
       if (!existing) return
       await save({ ...existing, enabled, updatedAt: new Date().toISOString() })
     },
-    runJob: (id) => sendScheduleMessage('runScheduledJob', { jobId: id }),
+    runJob: (id, message) =>
+      sendScheduleMessage('runScheduledJob', { jobId: id, message }),
   }
 }
 

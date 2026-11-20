@@ -65,15 +65,15 @@ index a6d969df56d13d94eaa968934f909d6fd23b5f2f..56bf2a72ca207aefee13cbdf984ee7fb
 +        L"924012147-",
 +};
 +#else
-+inline constexpr wchar_t kProductPathName[] = L"BrowserOS";
++inline constexpr wchar_t kProductPathName[] = L"MaestroOS";
 +inline constexpr ProductInstallIdentity kProductInstallIdentity = {
-+    .base_app_name = L"BrowserOS",
-+    .base_app_id = L"BrowserOS",
++    .base_app_name = L"MaestroOS",
++    .base_app_id = L"MaestroOS",
 +    .browser_prog_id_prefix = L"BOSHTML",
-+    .browser_prog_id_description = L"BrowserOS HTML Document",
++    .browser_prog_id_description = L"MaestroOS HTML Document",
 +    .direct_launch_url_scheme = "browseros",
 +    .pdf_prog_id_prefix = L"BOSPDF",
-+    .pdf_prog_id_description = L"BrowserOS PDF Document",
++    .pdf_prog_id_description = L"MaestroOS PDF Document",
 +    .active_setup_guid = L"{0EF5669B-7FD7-4138-A91F-E466631ADE97}",
 +    .toast_activator_clsid = {0xE76CCE76,
 +                              0x27A7,

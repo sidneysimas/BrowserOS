@@ -70,11 +70,11 @@ const primarySettingsSections: NavSection[] = [
     label: 'Other',
     items: [
       {
-        name: 'Customize BrowserOS',
+        name: 'Customize MaestroOS',
         to: '/settings/customization',
         icon: Palette,
       },
-      { name: 'BrowserOS as MCP', to: '/settings/mcp', icon: Server },
+      { name: 'MaestroOS as MCP', to: '/settings/mcp', icon: Server },
     ],
   },
 ]

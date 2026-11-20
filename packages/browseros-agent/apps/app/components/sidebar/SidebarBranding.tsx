@@ -23,14 +23,14 @@ export const SidebarBranding: FC<SidebarBrandingProps> = ({
   return (
     <div className="flex h-14 items-center justify-between border-b px-2">
       <div className="flex items-center gap-2 p-1.5">
-        <img src={ProductLogo} alt="BrowserOS" className="size-8 shrink-0" />
+        <img src={ProductLogo} alt="MaestroOS" className="size-8 shrink-0" />
         <span
           className={cn(
             'min-w-0 truncate font-semibold leading-none transition-opacity duration-200',
             expanded ? 'opacity-100' : 'hidden',
           )}
         >
-          {selectedFolder?.name || 'BrowserOS'}
+          {selectedFolder?.name || 'MaestroOS'}
         </span>
       </div>
       <div

@@ -13,7 +13,7 @@ export function WelcomeStep({ onPrimary, onSkip }: WelcomeStepProps) {
   return (
     <StepWrap>
       <DisplayHeading>
-        Welcome to <Em>BrowserOS</Em>
+        Welcome to <Em>MaestroOS</Em>
       </DisplayHeading>
       <StepCopy>
         Two quick steps to get set up: bring your browser over, then connect

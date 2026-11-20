@@ -324,7 +324,7 @@ export function ImportStep({
             </div>
             <div className="text-[12.5px] text-ink-2">
               {state.error?.message ??
-                "BrowserOS couldn't finish this import. Try again below, or refresh the profile list."}
+                "MaestroOS couldn't finish this import. Try again below, or refresh the profile list."}
             </div>
           </div>
           <div className="flex flex-wrap gap-2.5">

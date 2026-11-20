@@ -17,7 +17,7 @@ export function useProbeCustomAgent() {
 
   return useMutation<AcpProbeResult, Error, ProbeCustomAgentInput>({
     mutationFn: async ({ command, env, cwd }) => {
-      if (!baseUrl) throw new Error('BrowserOS agent server URL is not ready')
+      if (!baseUrl) throw new Error('MaestroOS agent server URL is not ready')
       const response = await fetch(`${baseUrl}/acpx/probe`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

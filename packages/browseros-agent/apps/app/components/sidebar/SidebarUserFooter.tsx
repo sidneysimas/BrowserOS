@@ -50,7 +50,7 @@ export const SidebarUserFooter: FC<SidebarUserFooterProps> = ({
           expanded ? 'opacity-100' : 'opacity-0',
         )}
       >
-        About BrowserOS
+        About MaestroOS
       </span>
     </a>
   )
@@ -90,7 +90,7 @@ export const SidebarUserFooter: FC<SidebarUserFooterProps> = ({
         ) : (
           <Tooltip>
             <TooltipTrigger asChild>{aboutLink}</TooltipTrigger>
-            <TooltipContent side="right">About BrowserOS</TooltipContent>
+            <TooltipContent side="right">About MaestroOS</TooltipContent>
           </Tooltip>
         )}
       </div>

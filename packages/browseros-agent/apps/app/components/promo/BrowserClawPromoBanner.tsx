@@ -51,7 +51,11 @@ export const BrowserClawPromoBannerCard: FC<{
   </div>
 )
 
-export const BrowserClawPromoBanner: FC = () => {
+// Custom-branded fork: the upstream BrowserOS neo promo is not shown.
+export const BrowserClawPromoBanner: FC = () => null
+
+// biome-ignore lint/correctness/noUnusedVariables: kept for upstream merges
+const UpstreamBrowserClawPromoBanner: FC = () => {
   const [dismissed, setDismissed] = useState<boolean | null>(null)
 
   useEffect(() => {

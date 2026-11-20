@@ -81,7 +81,7 @@ class UniquenessTest(unittest.TestCase):
     def test_duplicate_bundle_id_detected(self):
         clone = ProductDescriptor.define(
             id="browseros2",
-            display_name="BrowserOS",  # same display name → same bundle_id
+            display_name="MaestroOS",  # same display name → same bundle_id
             windows_installer_guid="{11111111-2222-3333-4444-555555555555}",
             summary="s",
             description="d",

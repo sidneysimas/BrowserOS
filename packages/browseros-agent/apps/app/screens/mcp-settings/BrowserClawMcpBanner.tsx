@@ -18,7 +18,11 @@ const BROWSERCLAW_URL = 'https://browserclaw.ai'
  * Copy stays MCP-specific so it explains why BrowserOS neo is relevant to users
  * configuring BrowserOS as an MCP server.
  */
-export const BrowserClawMcpBanner: FC = () => {
+// Custom-branded fork: the upstream BrowserOS neo promo is not shown.
+export const BrowserClawMcpBanner: FC = () => null
+
+// biome-ignore lint/correctness/noUnusedVariables: kept for upstream merges
+const UpstreamBrowserClawMcpBanner: FC = () => {
   const handleClick = async () => {
     track(BROWSERCLAW_MCP_BANNER_CLICKED_EVENT)
     try {

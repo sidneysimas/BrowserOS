@@ -31,7 +31,7 @@ export function SetupStep({ failed, onRetry }: SetupStepProps) {
           <StepCopy>
             {failed
               ? 'Please try again.'
-              : 'Preparing BrowserOS. This should only take a moment.'}
+              : 'Preparing MaestroOS. This should only take a moment.'}
           </StepCopy>
         </div>
         {failed && (

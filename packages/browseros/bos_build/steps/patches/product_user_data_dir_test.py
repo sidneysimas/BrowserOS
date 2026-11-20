@@ -155,7 +155,7 @@ class ProductUserDataDirPatchTest(unittest.TestCase):
             browserclaw,
         )
         self.assertIn(
-            'inline constexpr wchar_t kProductPathName[] = L"BrowserOS";', browseros
+            'inline constexpr wchar_t kProductPathName[] = L"MaestroOS";', browseros
         )
         self.assertNotIn("GetProduct", install_modes)
         self.assertNotIn("browseros_product.h", install_modes)
@@ -191,18 +191,18 @@ class ProductUserDataDirPatchTest(unittest.TestCase):
         )
 
         expected_fields = {
-            "base_app_name": ('L"BrowserOS neo"', 'L"BrowserOS"'),
-            "base_app_id": ('L"BrowserClaw"', 'L"BrowserOS"'),
+            "base_app_name": ('L"BrowserOS neo"', 'L"MaestroOS"'),
+            "base_app_id": ('L"BrowserClaw"', 'L"MaestroOS"'),
             "browser_prog_id_prefix": ('L"BClawHTML"', 'L"BOSHTML"'),
             "browser_prog_id_description": (
                 'L"BrowserOS neo HTML Document"',
-                'L"BrowserOS HTML Document"',
+                'L"MaestroOS HTML Document"',
             ),
             "direct_launch_url_scheme": ('"browserclaw"', '"browseros"'),
             "pdf_prog_id_prefix": ('L"BClawPDF"', 'L"BOSPDF"'),
             "pdf_prog_id_description": (
                 'L"BrowserOS neo PDF Document"',
-                'L"BrowserOS PDF Document"',
+                'L"MaestroOS PDF Document"',
             ),
             "active_setup_guid": (
                 'L"{E9E65674-914E-4A29-83A9-A98D407446EC}"',

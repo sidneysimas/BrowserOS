@@ -170,7 +170,7 @@ export const BrowserOsAiPane: FC = () => {
         {providersUnavailable ? (
           <Alert variant="destructive">
             <AlertDescription>
-              Your providers could not be loaded because the BrowserOS server is
+              Your providers could not be loaded because the MaestroOS server is
               not reachable. They are still saved on this device.
             </AlertDescription>
           </Alert>

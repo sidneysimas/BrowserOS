@@ -30,7 +30,8 @@ BUG_REPORTER_LINE='<app appid="adlpneommgkgeanpaekgoaolcpncohkf"><updatecheck co
 
 export DEPOT_TOOLS_WIN_TOOLCHAIN=0
 export PYTHONIOENCODING=utf-8
-export PATH="$CHROMIUM_ROOT/depot_tools:$PATH"
+# PATH entries must be POSIX paths here: "E:/..." would split at the drive colon.
+export PATH="$(cygpath -u "$CHROMIUM_ROOT")/depot_tools:$PATH"
 
 step() { printf '\n==> %s\n' "$*"; }
 die() { printf '\nERRO: %s\n' "$*" >&2; exit 1; }

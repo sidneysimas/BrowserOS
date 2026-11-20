@@ -19,6 +19,8 @@ os créditos ao projeto original.
 | Servidor local | O navegador passa `BROWSEROS_TRUSTED_ORIGINS` com o novo ID, porque o servidor baixado do CDN só conhece o ID original | `chromium_patches/chrome/browser/browseros/server/server_process_launcher_win.cc` |
 | Interface | Logo do robô, textos "MaestroOS" e banners do "BrowserOS neo" ocultos | `packages/browseros-agent/apps/app` e `apps/app-onboard` |
 | Atualizações | O WinSparkle fica sempre desligado, para o appcast oficial não instalar o BrowserOS por cima | `chromium_patches/chrome/browser/win/winsparkle_glue.cc` |
+| Servidor de IA | Compilado deste repositório sem chaves de telemetria e com o atualizador desligado, para o CDN não trocá-lo pela versão do upstream | `scripts/build/server/descriptor.ts` (`BROWSEROS_SERVER_TELEMETRY_OFF=1`) e `chromium_patches/.../server/browseros_server_config.cc` |
+| Telemetria do navegador | Métricas (PostHog) sem chave, ou seja, desligadas. Relatórios de crash não são enviados, porque a URL é o Sentry do upstream | `chromium_patches/.../metrics/browseros_metrics_service.cc` e `chromium_patches/chrome/app/chrome_crash_reporter_client_win.cc` |
 | Versão mínima do Chromium | `BROWSEROS_RELEASE_MIN_CHROMIUM_VERSION` = 155.0.8059.26 | `bos_build/config/` |
 | Build | A etapa `bundled_extensions` aceita `codebase="file://..."` para usar um CRX local | `bos_build/steps/extensions/bundled_extensions.py` |
 | Ambiente de desenvolvimento | O supervisor `tools/dev` funciona no Windows | `packages/browseros-agent/tools/dev` |
@@ -66,9 +68,11 @@ bash maestroos/build.sh
 O script:
 
 1. baixa do CDN público os binários do servidor e o onboarding base (só na primeira vez);
-2. compila a extensão e o onboarding a partir deste repositório;
-3. assina o CRX e confere se o ID bate com o do produto;
-4. sincroniza a fonte do Chromium e compila. **Esta etapa leva de 3 a 4 horas.**
+2. compila o servidor de IA sem telemetria e o coloca no lugar do binário do CDN. Só o
+   `third_party/bun.exe` continua vindo do CDN;
+3. compila a extensão e o onboarding a partir deste repositório;
+4. assina o CRX e confere se o ID bate com o do produto;
+5. sincroniza a fonte do Chromium e compila. **Esta etapa leva de 3 a 4 horas.**
 
 Saída: `packages/browseros/releases/<versão>/MaestroOS_v<versão>_x64_installer.exe`, e um log
 completo se você redirecionar a saída (`bash maestroos/build.sh > build.log 2>&1`).
@@ -102,10 +106,15 @@ bash maestroos/build.sh --prepare-only
 
 - **Instalador sem assinatura.** O SmartScreen avisa até o instalador ser assinado.
 - **Sem atualizações automáticas.** Novas versões precisam ser instaladas manualmente.
-- **Dependências do upstream:**
-  - o servidor de IA ainda se atualiza a partir do CDN do BrowserOS;
-  - a nova aba e o agente usam APIs do `browseros.com`.
-- **Telemetria.** O Sentry e o PostHog do navegador ainda apontam para os projetos do BrowserOS.
+- **Dependências do upstream.** A nova aba e o agente usam APIs do `browseros.com`, e a lista
+  remota de extensões vem de `cdn.browseros.com`.
+- **Telemetria.** Está toda desligada (navegador, servidor e extensão), e não há relatórios de
+  crash nem métricas. Para ter os seus próprios:
+  - **Métricas:** coloque a chave do seu projeto PostHog em `kBrowserOSPostHogApiKey`.
+  - **Crashes:** troque `kSentryMinidumpUrl` pelo seu projeto Sentry e devolva
+    `GetCollectStatsConsent()` ao padrão do Chromium.
+  - **Servidor:** compile sem `BROWSEROS_SERVER_TELEMETRY_OFF` e com `POSTHOG_API_KEY` e
+    `SENTRY_DSN` próprios.
 - **Idioma.** A interface da extensão está em inglês.
 - **Testes de `bundled_extensions`.** Dois testes desse step comparam com o manifesto oficial do
   CDN e falham neste fork, como esperado.

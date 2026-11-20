@@ -3,7 +3,7 @@ new file mode 100644
 index 0000000000000000000000000000000000000000..97180c8484b889a9eb8a77b832300cb8cf8b0543
 --- /dev/null
 +++ b/chrome/browser/browseros/metrics/browseros_metrics_service.cc
-@@ -0,0 +1,274 @@
+@@ -0,0 +1,278 @@
 +// Copyright 2025 The Chromium Authors
 +// Use of this source code is governed by a BSD-style license that can be
 +// found in the LICENSE file.
@@ -38,8 +38,9 @@ index 0000000000000000000000000000000000000000..97180c8484b889a9eb8a77b832300cb8
 +namespace browseros_metrics {
 +namespace {
 +
-+constexpr std::string_view kBrowserOSPostHogApiKey =
-+    "phc_PRrpVnBMVJgUumvaXzUnwKZ1dDs3L8MSICLhTdnc8jC";
++// Custom-branded fork: empty, so usage metrics are not sent to upstream's
++// PostHog project. Set the fork's own project key here to re-enable them.
++constexpr std::string_view kBrowserOSPostHogApiKey = "";
 +constexpr std::string_view kBrowserClawPostHogApiKey =
 +    "phc_mafRaZD4djbUnfNzKx9iKWyzW583UAbmZGepvxDiPcZx";
 +constexpr char kPostHogEndpoint[] = "https://us.i.posthog.com/i/v0/e/";
@@ -190,6 +191,9 @@ index 0000000000000000000000000000000000000000..97180c8484b889a9eb8a77b832300cb8
 +void BrowserOSMetricsService::SendEventToPostHog(std::string event_name,
 +                                                 base::DictValue properties) {
 +  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
++  if (GetPostHogApiKey(product_).empty()) {
++    return;
++  }
 +  AddDefaultProperties(properties);
 +
 +  base::DictValue payload;

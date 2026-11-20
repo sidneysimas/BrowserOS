@@ -3,7 +3,7 @@ new file mode 100644
 index 0000000000000000000000000000000000000000..c383a4374cc5a7bd4c4408c4efbdeb7d96acdc23
 --- /dev/null
 +++ b/chrome/browser/browseros/server/browseros_server_config.cc
-@@ -0,0 +1,178 @@
+@@ -0,0 +1,180 @@
 +// Copyright 2024 The Chromium Authors
 +// Use of this source code is governed by a BSD-style license that can be
 +// found in the LICENSE file.
@@ -23,7 +23,9 @@ index 0000000000000000000000000000000000000000..c383a4374cc5a7bd4c4408c4efbdeb7d
 +    FILE_PATH_LITERAL("browseros_server"),
 +    FILE_PATH_LITERAL("config.json"),
 +    "/system/health",
-+    true,
++    // Custom-branded fork: the fork ships its own server build (no upstream
++    // telemetry keys), and the upstream appcast would replace it.
++    false,
 +    {
 +        // Empty state dir keeps the legacy .browseros/current_version layout.
 +        FILE_PATH_LITERAL(""),

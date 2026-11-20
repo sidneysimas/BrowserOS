@@ -112,7 +112,7 @@ index 0000000000000000000000000000000000000000..3e6c8d9cbb478e9d3dc59fa2e63ba934
 +  EXPECT_EQ(base::FilePath::StringType(FILE_PATH_LITERAL("config.json")),
 +            ToPathString(descriptor.config_file_name));
 +  EXPECT_EQ(std::string_view("/system/health"), descriptor.health_path);
-+  EXPECT_TRUE(descriptor.enable_updater);
++  EXPECT_FALSE(descriptor.enable_updater);
 +
 +  // Empty state dir preserves the legacy .browseros/current_version layout.
 +  EXPECT_TRUE(descriptor.updater.state_dir.empty());

@@ -18,6 +18,16 @@ const CI_INLINE_ENV_DEFAULTS = {
   SENTRY_DSN: 'https://ci@sentry.invalid/1',
 }
 
+// Forks that ship their own server build (MaestroOS) set this to compile a
+// --ci binary with no telemetry: empty keys inline as "", which the server's
+// metrics and Sentry setup treat as disabled. Without it, CI keeps the
+// placeholder keys above.
+// biome-ignore lint/style/noProcessEnv: build-time switch read once per build
+const TELEMETRY_OFF = process.env.BROWSEROS_SERVER_TELEMETRY_OFF === '1'
+const CI_INLINE_ENV_OVERRIDES: Record<string, string> = TELEMETRY_OFF
+  ? { POSTHOG_API_KEY: '', SENTRY_DSN: '' }
+  : {}
+
 export const browserosServerBuildProduct: BuildProductDescriptor = {
   label: 'BrowserOS server',
   packageDir: 'apps/server',
@@ -31,6 +41,7 @@ export const browserosServerBuildProduct: BuildProductDescriptor = {
     requiredInlineEnvKeys: REQUIRED_PROD_VARS,
     inlineEnvKeys: INLINED_ENV_VARS,
     ciInlineEnvDefaults: CI_INLINE_ENV_DEFAULTS,
+    ciInlineEnvOverrides: CI_INLINE_ENV_OVERRIDES,
     defaultR2UploadPrefix: 'artifacts/server',
     defaultR2DownloadPrefix: 'artifacts/vendor',
   },

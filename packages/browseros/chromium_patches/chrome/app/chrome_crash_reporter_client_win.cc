@@ -22,22 +22,23 @@ index f7ce95d3977ce5d0dc3193a11083209f151f2a14..eeb01977a7d97de52fd7d59570b52a99
 -  *product_info =
 -      ProductInfo(base::WideToUTF8(product_name), base::WideToUTF8(version),
 -                  base::WideToUTF8(channel_name));
-+  *product_info = ProductInfo("BrowserOS", base::WideToUTF8(version),
++  *product_info = ProductInfo("MaestroOS", base::WideToUTF8(version),
 +                             base::WideToUTF8(channel_name));
  }
  
  bool ChromeCrashReporterClient::GetShouldDumpLargerDumps() {
-@@ -146,7 +151,8 @@ bool ChromeCrashReporterClient::IsRunningUnattended() {
+@@ -146,7 +151,9 @@ bool ChromeCrashReporterClient::IsRunningUnattended() {
  }
  
  bool ChromeCrashReporterClient::GetCollectStatsConsent() {
 -  return install_static::GetCollectStatsConsent();
-+  // Enable crash reporting.
-+  return true;
++  // Custom-branded fork: the upload URL is upstream's Sentry project, so
++  // crash dumps stay local until the fork has its own crash backend.
++  return false;
  }
  
  bool ChromeCrashReporterClient::GetCollectStatsInSample() {
-@@ -236,3 +242,7 @@ std::wstring ChromeCrashReporterClient::GetWerRuntimeExceptionModule() {
+@@ -236,3 +243,7 @@ std::wstring ChromeCrashReporterClient::GetWerRuntimeExceptionModule() {
    // file_start points to the start of the filename in the elf_dir buffer.
    return std::wstring(elf_dir, file_start).append(kWerDll);
  }

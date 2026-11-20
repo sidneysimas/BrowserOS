@@ -69,6 +69,35 @@ fi
 step "Instalando dependências (bun install)"
 (cd "$AGENT" && bun install)
 
+# The CDN server binary has upstream's PostHog/Sentry keys compiled in, so the
+# fork builds its own with empty keys and swaps it in. third_party/bun.exe still
+# comes from the CDN zip (upstream fetches it from a private bucket).
+step "Compilando o servidor sem telemetria"
+server_out="$AGENT/dist/prod/server/windows-x64"
+rm -rf "$server_out"
+# The final zip step needs a `zip` binary Git Bash lacks; the staged directory
+# is what we use, so its exit status is checked through the output instead.
+(cd "$AGENT" && BROWSEROS_SERVER_TELEMETRY_OFF=1 bun scripts/build/server.ts --target=windows-x64 --ci) ||
+  echo "(etapa final de zip ignorada)"
+server_exe="$server_out/resources/bin/browseros_server.exe"
+[ -f "$server_exe" ] || die "o build do servidor não gerou $server_exe"
+grep -aq 'POSTHOG_API_KEY: ""' "$server_exe" || die "o servidor compilado ainda tem chave de telemetria"
+cp -r "$server_out/resources/." "$server_dir/resources/"
+uv run --python 3.12 python -I - "$server_dir" <<'EOF'
+import hashlib, json, sys
+from pathlib import Path
+root = Path(sys.argv[1])
+meta_path = root / "artifact-metadata.json"
+meta = json.loads(meta_path.read_text(encoding="utf-8"))
+meta["files"] = [
+    {"path": f.relative_to(root).as_posix(),
+     "sha256": hashlib.sha256(f.read_bytes()).hexdigest(),
+     "size": f.stat().st_size}
+    for f in sorted((root / "resources").rglob("*")) if f.is_file()
+]
+meta_path.write_text(json.dumps(meta, indent=2) + "\n", encoding="utf-8")
+EOF
+
 step "Compilando a extensão do agente"
 (cd "$AGENT/apps/app" && bun run build)
 dist="$AGENT/apps/app/dist/chrome-mv3"

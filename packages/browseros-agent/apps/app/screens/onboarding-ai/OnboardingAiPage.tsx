@@ -1,5 +1,6 @@
 import type { FC } from 'react'
-import { useNavigate } from 'react-router'
+import { Navigate, useNavigate } from 'react-router'
+import { useKitSelection } from '@/lib/kits/kit-storage'
 import { useLlmProviders } from '@/modules/llm-providers/llm-providers.hooks'
 import { AddProviderSection } from '@/screens/ai-settings/AddProviderSection'
 import {
@@ -22,6 +23,7 @@ import {
 export const OnboardingAiPage: FC = () => {
   const navigate = useNavigate()
   const { providers, saveProvider, setDefaultProvider } = useLlmProviders()
+  const kitSelection = useKitSelection()
 
   const goHome = () => navigate('/home', { replace: true })
 
@@ -41,6 +43,13 @@ export const OnboardingAiPage: FC = () => {
       goHome()
     },
   })
+
+  // MaestroOS: the native onboarding opens this page directly, so the kit
+  // picker is reached by bouncing through it once, while no kit was chosen or
+  // skipped. Doing it here keeps the entry URL in the Chromium patch unchanged.
+  if (kitSelection === null) {
+    return <Navigate to="/onboarding/kit?next=/onboarding/ai" replace />
+  }
 
   return (
     <div className="min-h-[100dvh] bg-background">

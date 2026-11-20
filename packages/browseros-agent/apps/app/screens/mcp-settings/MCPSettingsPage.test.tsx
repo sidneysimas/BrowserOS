@@ -53,20 +53,12 @@ beforeAll(async () => {
 })
 
 describe('MCPSettingsPage', () => {
-  it('mounts the permanent BrowserClaw banner between the server header and integrations', () => {
+  // MaestroOS hides the upstream BrowserOS neo banner that sat between these.
+  it('renders the server header and integrations without the BrowserClaw banner', () => {
     const html = renderToStaticMarkup(createElement(MCPSettingsPage))
 
-    expect(html).toContain('For better MCP support, use BrowserOS neo')
-
-    // Pin the stub positions first: a missing stub would return -1 and turn the
-    // ordering bounds below into assertions that are trivially true.
-    const headerIndex = html.indexOf('server-header')
-    const integrationsIndex = html.indexOf('integrations')
-    expect(headerIndex).toBeGreaterThan(-1)
-    expect(integrationsIndex).toBeGreaterThan(-1)
-
-    const bannerIndex = html.indexOf('For better MCP support')
-    expect(bannerIndex).toBeGreaterThan(headerIndex)
-    expect(bannerIndex).toBeLessThan(integrationsIndex)
+    expect(html).toContain('server-header')
+    expect(html).toContain('integrations')
+    expect(html).not.toContain('For better MCP support')
   })
 })

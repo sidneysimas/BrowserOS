@@ -3,7 +3,7 @@ import { type FC, useState } from 'react'
 import { getFavicons } from '@/lib/getFavicons'
 import { useRecentSites } from './recent-sites.hooks'
 
-const RecentSiteIcon: FC<{ src: string; alt: string }> = ({ src, alt }) => {
+export const SiteIcon: FC<{ src: string; alt: string }> = ({ src, alt }) => {
   const [failed, setFailed] = useState(false)
 
   if (failed) {
@@ -49,7 +49,7 @@ export const RecentSites: FC = () => {
             >
               <div className="flex h-14 w-14 items-center justify-center rounded-2xl border border-border/50 bg-card shadow-sm transition-all group-hover:border-[var(--accent-orange)]/30 group-hover:shadow-md">
                 {icon ? (
-                  <RecentSiteIcon src={icon} alt={site.name} />
+                  <SiteIcon src={icon} alt={site.name} />
                 ) : (
                   <Globe className="h-7 w-7 text-foreground" />
                 )}

@@ -15,6 +15,7 @@ import { NewTabChat } from '@/screens/newtab/index/NewTabChat'
 import { NewTabLayout } from '@/screens/newtab/layout/NewTabLayout'
 import { Personalize } from '@/screens/newtab/personalize/Personalize'
 import { OnboardingAiPage } from '@/screens/onboarding-ai/OnboardingAiPage'
+import { OnboardingKitPage } from '@/screens/onboarding-kit/OnboardingKitPage'
 import { ScheduledTasksPage } from '@/screens/scheduled-tasks/ScheduledTasksPage'
 
 function getSurveyParams(): { maxTurns?: number; experimentId?: string } {
@@ -83,8 +84,10 @@ export const App: FC = () => {
         {/* First-run setup, opened by the native onboarding on completion.
             Outside every layout route on purpose: no sidebar, no chrome. */}
         <Route path="onboarding">
+          {/* MaestroOS: the kit picker runs first and then hands off to ai. */}
+          <Route path="kit" element={<OnboardingKitPage />} />
           <Route path="ai" element={<OnboardingAiPage />} />
-          <Route index element={<Navigate to="/onboarding/ai" replace />} />
+          <Route index element={<Navigate to="/onboarding/kit" replace />} />
         </Route>
 
         <Route path="/" element={<Navigate to="/home" replace />} />

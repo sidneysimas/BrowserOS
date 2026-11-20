@@ -265,10 +265,10 @@ index 0000000000000000000000000000000000000000..f86e22cf3df9d1aa48c25b7366c8b5d7
 +  }
 +  initialized_ = true;
 +
-+  // Same kill switch as the macOS Sparkle glue; keeps dev runs and tests
-+  // from hitting the production appcast.
++  // Custom-branded fork: updates are always off, since the official appcast
++  // would install upstream BrowserOS over this build and its logo.
 +  auto* command_line = base::CommandLine::ForCurrentProcess();
-+  if (command_line && command_line->HasSwitch("disable-updates")) {
++  if (true || (command_line && command_line->HasSwitch("disable-updates"))) {
 +    VLOG(1) << "WinSparkle: updates disabled via command line";
 +    return false;
 +  }

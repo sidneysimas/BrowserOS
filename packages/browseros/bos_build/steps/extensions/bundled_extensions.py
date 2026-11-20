@@ -190,6 +190,13 @@ class BundledExtensionsModule(Step):
 
     def _download_extension(self, extension: ExtensionInfo, output_dir: Path) -> None:
         destination = output_dir / f"{extension.id}.crx"
+        if extension.codebase.startswith("file://"):
+            # A locally signed CRX (e.g. a custom-branded fork's own agent build)
+            # referenced from a local BUNDLED_EXTENSIONS_MANIFEST_URL file.
+            source = Path(extension.codebase[len("file://") :])
+            log_info(f"  Copying {extension.id} v{extension.version} from {source}")
+            shutil.copy2(source, destination)
+            return
         log_info(f"  Downloading {extension.id} v{extension.version}...")
         try:
             response = requests.get(extension.codebase, stream=True, timeout=60)

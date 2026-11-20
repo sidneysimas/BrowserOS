@@ -2,11 +2,8 @@ import { Globe, LayoutGrid, X } from 'lucide-react'
 import type { FC } from 'react'
 import { Link } from 'react-router'
 import { getFavicons } from '@/lib/getFavicons'
-import {
-  removePinnedSite,
-  useKitSelection,
-  usePinnedSites,
-} from '@/lib/kits/kit-storage'
+import { useKitSelection, usePinnedSites } from '@/lib/kits/kit-hooks'
+import { removePinnedSite } from '@/lib/kits/kit-storage'
 import { SiteIcon } from './RecentSites'
 
 function hostOf(url: string): string | undefined {

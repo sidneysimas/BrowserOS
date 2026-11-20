@@ -43,6 +43,10 @@ export default defineConfig({
     chrome_url_overrides: {
       newtab: 'app.html',
     },
+    // MaestroOS address-bar commands: "m <keyword> <text>" (background/omniboxCommands.ts).
+    omnibox: {
+      keyword: 'm',
+    },
     options_ui: {
       page: 'app.html#/settings',
       open_in_tab: true,

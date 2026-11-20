@@ -4,6 +4,7 @@ import {
   BookOpen,
   Bot,
   Compass,
+  LayoutGrid,
   MessageSquare,
   Palette,
   Server,
@@ -69,6 +70,7 @@ const primarySettingsSections: NavSection[] = [
   {
     label: 'Other',
     items: [
+      { name: 'Meu kit', to: '/settings/kit', icon: LayoutGrid },
       {
         name: 'Customize MaestroOS',
         to: '/settings/customization',

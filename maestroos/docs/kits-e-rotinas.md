@@ -1,6 +1,6 @@
 # Desenho: Kits por setor e Rotinas
 
-Status: aprovado em 2026-11-20. Fase 1 (kits) implementada; nome escolhido: "Rotinas"; telas novas em pt-BR.
+Status: aprovado em 2026-11-20. Fases 1 (kits) e 2 (comandos `m` e tela Meu kit) implementadas; nome escolhido: "Rotinas"; telas novas em pt-BR.
 
 As duas funções ficam quase inteiras na extensão do agente (`packages/browseros-agent/apps/app`)
 e no servidor local (`apps/server`). Nenhuma delas exige patch no Chromium. Para desenvolver,
@@ -56,7 +56,7 @@ Sugestão de kits para a v1:
 ```
 
 Os kits ficam em `apps/app/lib/kits/kits.ts`, como código TypeScript tipado. O exemplo JSON acima
-mostra o formato completo. Na fase 1 só existem `sites` e `personalization`, e os outros campos
+mostra o formato completo. Hoje existem `sites`, `commands` e `personalization`. `rotinas` e `modules`
 entram nas fases seguintes.
 
 ### Onde cada item se encaixa no código existente

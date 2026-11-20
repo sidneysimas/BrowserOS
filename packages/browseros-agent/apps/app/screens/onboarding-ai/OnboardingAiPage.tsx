@@ -1,6 +1,6 @@
 import type { FC } from 'react'
 import { Navigate, useNavigate } from 'react-router'
-import { useKitSelection } from '@/lib/kits/kit-storage'
+import { useKitSelection } from '@/lib/kits/kit-hooks'
 import { useLlmProviders } from '@/modules/llm-providers/llm-providers.hooks'
 import { AddProviderSection } from '@/screens/ai-settings/AddProviderSection'
 import {

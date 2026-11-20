@@ -16,12 +16,21 @@ export interface KitSite {
   url: string
 }
 
+/** An address-bar shortcut: typing `m <keyword> <text>` opens `url` with
+ * `{q}` replaced by the URL-encoded text. */
+export interface KitCommand {
+  keyword: string
+  title: string
+  url: string
+}
+
 export interface Kit {
   id: KitId
   version: number
   name: string
   description: string
   sites: KitSite[]
+  commands: KitCommand[]
   /** Seeded into the Personalize text only when that text is still empty. */
   personalization: string
 }
@@ -39,6 +48,33 @@ export const KITS: readonly Kit[] = [
       { title: 'Agenda', url: 'https://calendar.google.com' },
       { title: 'WhatsApp', url: 'https://web.whatsapp.com' },
       { title: 'gov.br', url: 'https://www.gov.br' },
+    ],
+    commands: [
+      {
+        keyword: 'g',
+        title: 'Google',
+        url: 'https://www.google.com/search?q={q}',
+      },
+      {
+        keyword: 'maps',
+        title: 'Google Maps',
+        url: 'https://www.google.com/maps/search/{q}',
+      },
+      {
+        keyword: 'yt',
+        title: 'YouTube',
+        url: 'https://www.youtube.com/results?search_query={q}',
+      },
+      {
+        keyword: 'trad',
+        title: 'Tradutor',
+        url: 'https://translate.google.com/?sl=auto&tl=pt&text={q}',
+      },
+      {
+        keyword: 'wiki',
+        title: 'Wikipédia',
+        url: 'https://pt.wikipedia.org/w/index.php?search={q}',
+      },
     ],
     personalization: [
       '## Sobre mim',
@@ -62,6 +98,33 @@ export const KITS: readonly Kit[] = [
       { title: 'STJ', url: 'https://www.stj.jus.br' },
       { title: 'Comunica PJe', url: 'https://comunica.pje.jus.br' },
       { title: 'Diário Oficial', url: 'https://www.in.gov.br' },
+    ],
+    commands: [
+      {
+        keyword: 'jus',
+        title: 'Jusbrasil',
+        url: 'https://www.jusbrasil.com.br/busca?q={q}',
+      },
+      {
+        keyword: 'stf',
+        title: 'Jurisprudência do STF',
+        url: 'https://jurisprudencia.stf.jus.br/pages/search?base=acordaos&queryString={q}',
+      },
+      {
+        keyword: 'stj',
+        title: 'Jurisprudência do STJ',
+        url: 'https://scon.stj.jus.br/SCON/pesquisar.jsp?livre={q}',
+      },
+      {
+        keyword: 'dou',
+        title: 'Diário Oficial da União',
+        url: 'https://www.in.gov.br/consulta/-/buscar/dou?q={q}',
+      },
+      {
+        keyword: 'g',
+        title: 'Google',
+        url: 'https://www.google.com/search?q={q}',
+      },
     ],
     personalization: [
       '## Sobre mim',
@@ -90,6 +153,23 @@ export const KITS: readonly Kit[] = [
       { title: 'BVS', url: 'https://bvsalud.org' },
       { title: 'PubMed', url: 'https://pubmed.ncbi.nlm.nih.gov' },
     ],
+    commands: [
+      {
+        keyword: 'pubmed',
+        title: 'PubMed',
+        url: 'https://pubmed.ncbi.nlm.nih.gov/?term={q}',
+      },
+      {
+        keyword: 'bvs',
+        title: 'BVS',
+        url: 'https://pesquisa.bvsalud.org/portal/?q={q}',
+      },
+      {
+        keyword: 'g',
+        title: 'Google',
+        url: 'https://www.google.com/search?q={q}',
+      },
+    ],
     personalization: [
       '## Sobre mim',
       'Trabalho na área da saúde (atendimento, gestão de clínica ou pesquisa).',
@@ -112,6 +192,28 @@ export const KITS: readonly Kit[] = [
       { title: 'Lattes', url: 'https://lattes.cnpq.br' },
       { title: 'Google Acadêmico', url: 'https://scholar.google.com.br' },
       { title: 'Khan Academy', url: 'https://pt.khanacademy.org' },
+    ],
+    commands: [
+      {
+        keyword: 'scholar',
+        title: 'Google Acadêmico',
+        url: 'https://scholar.google.com.br/scholar?q={q}',
+      },
+      {
+        keyword: 'khan',
+        title: 'Khan Academy',
+        url: 'https://pt.khanacademy.org/search?page_search_query={q}',
+      },
+      {
+        keyword: 'wiki',
+        title: 'Wikipédia',
+        url: 'https://pt.wikipedia.org/w/index.php?search={q}',
+      },
+      {
+        keyword: 'g',
+        title: 'Google',
+        url: 'https://www.google.com/search?q={q}',
+      },
     ],
     personalization: [
       '## Sobre mim',
@@ -144,6 +246,28 @@ export const KITS: readonly Kit[] = [
       { title: 'Correios', url: 'https://rastreamento.correios.com.br' },
       { title: 'Sebrae', url: 'https://sebrae.com.br' },
       { title: 'Mercado Livre', url: 'https://www.mercadolivre.com.br' },
+    ],
+    commands: [
+      {
+        keyword: 'ml',
+        title: 'Mercado Livre',
+        url: 'https://lista.mercadolivre.com.br/{q}',
+      },
+      {
+        keyword: 'preco',
+        title: 'Google Shopping',
+        url: 'https://www.google.com/search?tbm=shop&q={q}',
+      },
+      {
+        keyword: 'maps',
+        title: 'Google Maps',
+        url: 'https://www.google.com/maps/search/{q}',
+      },
+      {
+        keyword: 'g',
+        title: 'Google',
+        url: 'https://www.google.com/search?q={q}',
+      },
     ],
     personalization: [
       '## Sobre mim',

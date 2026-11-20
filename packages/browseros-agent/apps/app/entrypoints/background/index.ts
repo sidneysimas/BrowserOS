@@ -24,6 +24,7 @@ import { onOpenSidePanelWithSearch } from '@/lib/messaging/sidepanel/openSidepan
 import { searchActionsStorage } from '@/lib/search-actions/searchActionsStorage'
 import { selectedTextStorage } from '@/lib/selected-text/selectedTextStorage'
 import { stopAgentStorage } from '@/lib/stop-agent/stop-agent-storage'
+import { registerOmniboxCommands } from './omniboxCommands'
 import { scheduledJobRuns } from './scheduledJobRuns'
 
 const RETIRED_STORAGE_KEYS = [
@@ -67,6 +68,7 @@ export default defineBackground(() => {
   Capabilities.initialize().catch(() => null)
 
   scheduledJobRuns()
+  registerOmniboxCommands()
 
   chrome.action.onClicked.addListener(async (tab) => {
     if (typeof tab.id === 'number' && typeof tab.windowId === 'number') {

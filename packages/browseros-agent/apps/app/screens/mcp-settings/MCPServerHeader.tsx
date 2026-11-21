@@ -10,6 +10,7 @@ import { type FC, useState } from 'react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { MCP_SERVER_RESTARTED_EVENT } from '@/lib/constants/analyticsEvents'
+import { mcpHelpUrl } from '@/lib/constants/productUrls'
 import { track } from '@/lib/metrics/track'
 import { ServerPortEditor } from './ServerPortEditor'
 import { waitForServerHealth } from './server-health'
@@ -21,7 +22,7 @@ export interface MCPServerHeaderProps {
   onServerRestart?: () => void
 }
 
-const DOCS_URL = 'https://docs.browseros.com/features/use-with-claude-code'
+const DOCS_URL = mcpHelpUrl
 
 export const MCPServerHeader: FC<MCPServerHeaderProps> = ({
   serverUrl,

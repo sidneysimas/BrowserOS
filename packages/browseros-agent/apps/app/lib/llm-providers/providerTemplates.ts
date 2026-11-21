@@ -1,3 +1,4 @@
+import { aiProvidersHelpUrl } from '@/lib/constants/productUrls'
 import { getModelsDevProvider } from './models-dev'
 import { CHATGPT_PROVIDER_DISPLAY_NAME } from './provider-display-names'
 import type { ProviderType } from './types'
@@ -53,7 +54,7 @@ export const providerTemplates: ProviderTemplate[] = [
     defaultModelId: 'gpt-5.5',
     supportsImages: true,
     contextWindow: 1050000,
-    setupGuideUrl: 'https://docs.browseros.com/features/chatgpt-pro-oauth',
+    setupGuideUrl: `${aiProvidersHelpUrl}#chatgpt-pro`,
   },
   {
     id: 'github-copilot',
@@ -62,7 +63,7 @@ export const providerTemplates: ProviderTemplate[] = [
     defaultModelId: 'gpt-5-mini',
     supportsImages: true,
     contextWindow: 128000,
-    setupGuideUrl: 'https://docs.browseros.com/features/github-copilot-oauth',
+    setupGuideUrl: `${aiProvidersHelpUrl}#github-copilot`,
   },
   {
     id: 'qwen-code',
@@ -71,7 +72,7 @@ export const providerTemplates: ProviderTemplate[] = [
     defaultModelId: 'coder-model',
     supportsImages: true,
     contextWindow: 1000000,
-    setupGuideUrl: 'https://docs.browseros.com/features/qwen-code-oauth',
+    setupGuideUrl: `${aiProvidersHelpUrl}#qwen-code`,
   },
   {
     id: 'moonshot',
@@ -86,8 +87,7 @@ export const providerTemplates: ProviderTemplate[] = [
   enrichTemplate('openai', {
     defaultModelId: 'gpt-5',
     apiKeyUrl: 'https://platform.openai.com/api-keys',
-    setupGuideUrl:
-      'https://docs.browseros.com/features/bring-your-own-llm#openai',
+    setupGuideUrl: `${aiProvidersHelpUrl}#openai`,
   }),
   {
     id: 'openai-compatible',
@@ -100,14 +100,12 @@ export const providerTemplates: ProviderTemplate[] = [
   enrichTemplate('anthropic', {
     defaultModelId: 'claude-sonnet-4-6',
     apiKeyUrl: 'https://console.anthropic.com/settings/keys',
-    setupGuideUrl:
-      'https://docs.browseros.com/features/bring-your-own-llm#claude',
+    setupGuideUrl: `${aiProvidersHelpUrl}#anthropic-claude`,
   }),
   enrichTemplate('google', {
     defaultModelId: 'gemini-2.5-flash',
     apiKeyUrl: 'https://aistudio.google.com/app/apikey',
-    setupGuideUrl:
-      'https://docs.browseros.com/features/bring-your-own-llm#gemini',
+    setupGuideUrl: `${aiProvidersHelpUrl}#google-gemini`,
   }),
   {
     id: 'ollama',
@@ -116,20 +114,17 @@ export const providerTemplates: ProviderTemplate[] = [
     defaultModelId: 'llama3.2',
     supportsImages: false,
     contextWindow: 128000,
-    setupGuideUrl:
-      'https://docs.browseros.com/features/bring-your-own-llm#ollama',
+    setupGuideUrl: `${aiProvidersHelpUrl}#ollama`,
   },
   enrichTemplate('openrouter', {
     defaultModelId: 'anthropic/claude-sonnet-4.5',
     apiKeyUrl: 'https://openrouter.ai/keys',
-    setupGuideUrl:
-      'https://docs.browseros.com/features/bring-your-own-llm#openrouter',
+    setupGuideUrl: `${aiProvidersHelpUrl}#openrouter`,
   }),
   enrichTemplate('lmstudio', {
     defaultModelId: 'openai/gpt-oss-20b',
     defaultBaseUrl: 'http://localhost:1234/v1',
-    setupGuideUrl:
-      'https://docs.browseros.com/features/bring-your-own-llm#lmstudio',
+    setupGuideUrl: `${aiProvidersHelpUrl}#lm-studio`,
   }),
   enrichTemplate('azure', {
     defaultModelId: '',

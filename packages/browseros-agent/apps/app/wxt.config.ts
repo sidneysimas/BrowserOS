@@ -4,7 +4,6 @@ import tailwindcss from '@tailwindcss/vite'
 import { defineConfig } from 'wxt'
 import { archiveSourceMaps } from './lib/build/archive-source-maps'
 import { LEGACY_AGENT_EXTENSION_ID } from './lib/constants/legacyAgentExtensionId'
-import { PRODUCT_WEB_HOST } from './lib/constants/productWebHost'
 
 // biome-ignore lint/style/noProcessEnv: build config file needs env access
 const env = process.env
@@ -31,12 +30,10 @@ export default defineConfig({
       ids: [REPORTER_EXTENSION_ID],
     },
     web_accessible_resources: [
+      // MaestroOS: upstream also let browseros.com pages load app.html; the
+      // fork does not trust that site, so only the legacy extension keeps access.
       {
         resources: ['app.html'],
-        matches: [
-          `https://${PRODUCT_WEB_HOST}/*`,
-          `https://*.${PRODUCT_WEB_HOST}/*`,
-        ],
         extension_ids: [LEGACY_AGENT_EXTENSION_ID],
       },
     ],

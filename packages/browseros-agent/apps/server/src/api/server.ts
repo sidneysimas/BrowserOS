@@ -51,7 +51,10 @@ export async function createHttpServer(config: HttpServerConfig) {
     : null
   if (!browserosId) shutdownOAuth()
 
-  const klavis = new KlavisService({ browserosId })
+  // MaestroOS: built-in apps (Gmail, Slack...) go through BrowserOS's Klavis
+  // proxy at llm.browseros.com keyed by this install's id. Without an id the
+  // service stays 'disabled' and never contacts it; the UI hides those apps.
+  const klavis = new KlavisService({ browserosId: null })
   klavis.start()
 
   const activity = new ServerActivity()

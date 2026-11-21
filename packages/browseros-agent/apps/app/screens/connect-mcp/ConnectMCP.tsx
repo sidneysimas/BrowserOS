@@ -34,6 +34,11 @@ const failedToRemoveMcp = (serverName: string, e: unknown) => {
 /**
  * @public
  */
+
+// MaestroOS: built-in apps (Gmail, Slack...) run through BrowserOS's Klavis
+// proxy, which the fork's server does not contact. Custom MCP servers stay.
+const BUILT_IN_APPS_ENABLED = false
+
 export const ConnectMCP: FC = () => {
   const { servers: createdServers, addServer, removeServer } = useMcpServers()
   const [addingManagedMcp, setAddingManagedMcp] = useState(false)
@@ -221,19 +226,20 @@ export const ConnectMCP: FC = () => {
           <div className="flex-1">
             <h2 className="mb-1 font-semibold text-xl">Connected Apps</h2>
             <p className="mb-6 text-muted-foreground text-sm">
-              Connect MaestroOS assistant to apps to send email, schedule
-              calendar events, write docs, and more
+              Connect the MaestroOS assistant to your own MCP servers
             </p>
 
             <div className="flex flex-wrap gap-3">
-              <Button
-                variant="outline"
-                onClick={() => setAddingManagedMcp(true)}
-                className="border-[var(--accent-orange)] bg-[var(--accent-orange)]/10 text-[var(--accent-orange)] hover:bg-[var(--accent-orange)]/20"
-              >
-                <Plus className="h-4 w-4" />
-                <span>Add built-in app</span>
-              </Button>
+              {BUILT_IN_APPS_ENABLED && (
+                <Button
+                  variant="outline"
+                  onClick={() => setAddingManagedMcp(true)}
+                  className="border-[var(--accent-orange)] bg-[var(--accent-orange)]/10 text-[var(--accent-orange)] hover:bg-[var(--accent-orange)]/20"
+                >
+                  <Plus className="h-4 w-4" />
+                  <span>Add built-in app</span>
+                </Button>
+              )}
 
               <Button
                 variant="outline"
@@ -334,11 +340,13 @@ export const ConnectMCP: FC = () => {
         </div>
       )}
 
-      <AvailableManagedServers
-        availableServers={availableServers}
-        onAddServer={addManagedServer}
-        isLoading={false}
-      />
+      {BUILT_IN_APPS_ENABLED && (
+        <AvailableManagedServers
+          availableServers={availableServers}
+          onAddServer={addManagedServer}
+          isLoading={false}
+        />
+      )}
 
       <AddManagedMCPDialog
         open={addingManagedMcp}

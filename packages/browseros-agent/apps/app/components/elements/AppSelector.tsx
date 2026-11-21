@@ -32,7 +32,12 @@ export interface AppSelectorProps {
   side?: 'top' | 'bottom' | 'left' | 'right'
 }
 
-export const AppSelector: FC<AppSelectorProps> = ({
+// MaestroOS: built-in apps depend on BrowserOS's Klavis proxy, which the fork's
+// server never contacts (api/server.ts), so the picker and its trigger are hidden.
+export const AppSelector: FC<AppSelectorProps> = () => null
+
+// biome-ignore lint/correctness/noUnusedVariables: kept for upstream merges
+const UpstreamAppSelector: FC<AppSelectorProps> = ({
   children,
   side = 'bottom',
 }) => {

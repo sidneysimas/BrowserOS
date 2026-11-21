@@ -6,6 +6,7 @@ import { AlertCircle, RefreshCw } from 'lucide-react'
 import type { FC } from 'react'
 import { useState } from 'react'
 import { Button } from '@/components/ui/button'
+import { connectionHelpUrl } from '@/lib/constants/productUrls'
 
 export interface ChatErrorProps {
   error: Error
@@ -81,7 +82,7 @@ function fromMessage(message: string): ChatErrorView {
     return {
       title: 'Connection failed',
       text: 'Unable to connect to MaestroOS agent. Follow below instructions.',
-      url: 'https://docs.browseros.com/troubleshooting/connection-issues',
+      url: connectionHelpUrl,
       linkLabel: 'View troubleshooting guide',
       canRetry: true,
     }

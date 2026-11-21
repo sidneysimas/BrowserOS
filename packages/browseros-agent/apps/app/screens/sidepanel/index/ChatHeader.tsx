@@ -117,7 +117,7 @@ export const ChatHeader: FC<ChatHeaderProps> = ({
           target="_blank"
           rel="noopener noreferrer"
           className="cursor-pointer rounded-lg p-2 text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground"
-          title="Star on Github"
+          title="Source code"
         >
           <Github className="h-4 w-4" />
         </a>

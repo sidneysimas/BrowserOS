@@ -34,8 +34,9 @@ export interface ChatErrorContext {
 // Bounded, but large, so a pathological body still cannot flood the wire or card.
 const DETAILS_MAX_LENGTH = 20000
 
+// MaestroOS: the fork's own help page (maestroos/docs/ajuda), not upstream's docs.
 const CONNECTION_DOCS_URL =
-  'https://docs.browseros.com/troubleshooting/connection-issues'
+  'https://github.com/sidneysimas/BrowserOS/blob/feat/maestroos/maestroos/docs/ajuda/problemas-de-conexao.md'
 
 const REDACTED = '[REDACTED]'
 

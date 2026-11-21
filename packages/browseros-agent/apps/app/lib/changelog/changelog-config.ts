@@ -1,4 +1,6 @@
-const CHANGELOG_BASE_URL = 'https://docs.browseros.com/changelog'
+import { changelogUrl } from '@/lib/constants/productUrls'
+
+const CHANGELOG_BASE_URL = changelogUrl
 
 type ChangelogVersionConfig = {
   showChangelog: true

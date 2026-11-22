@@ -42,21 +42,23 @@ const defaults: Record<ChatMode, StarterPrompt[]> = {
       prompt: 'Read the current tab and extract comments as bullet points',
     },
   ],
+  // MaestroOS: upstream's examples promoted BrowserOS (upvote, GitHub star) and
+  // put an item in an Amazon cart; these only read, so a first try is harmless.
   agent: [
     {
-      display: 'Read about our vision and upvote',
+      display: "Summarize today's top news",
       prompt:
-        'Go to https://dub.sh/browseros-launch in current tab. Find and click the upvote button',
+        "Search for today's top news and summarize the 5 most important stories in bullet points, with a link for each",
     },
     {
-      display: 'Support BrowserOS on Github',
+      display: 'Find the best price for a 1 TB SSD',
       prompt:
-        'Go to http://git.new/browseros in current tab and star the repository',
+        'Search Google Shopping for a 1 TB SSD and list the 5 cheapest offers in a table with store, price and link',
     },
     {
-      display: 'Open amazon.com and order Sensodyne toothpaste',
+      display: 'Open Wikipedia and explain a topic',
       prompt:
-        'Open amazon.com in current tab and add sensodyne toothpaste to cart',
+        'Open the Wikipedia article about the planet Earth in the current tab and explain its main facts in 5 short bullet points',
     },
   ],
 }
